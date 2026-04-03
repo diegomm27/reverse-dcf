@@ -25,6 +25,11 @@ const StockOverview: React.FC<StockOverviewProps> = ({ data }) => {
             <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded border border-gray-200">
               {data.currency}
             </span>
+            {data.reportingCurrency !== data.currency && (
+              <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded border border-gray-200">
+                {`FS ${data.reportingCurrency}->${data.currency}`}
+              </span>
+            )}
           </div>
           <h1 className="text-xl font-semibold text-gray-900 mb-3">{data.name}</h1>
           <div className="flex flex-wrap gap-3 text-sm text-gray-500">
@@ -76,16 +81,16 @@ const StockOverview: React.FC<StockOverviewProps> = ({ data }) => {
 
       {/* Primary Metrics */}
       <div className="mt-5 pt-5 border-t border-gray-200 grid grid-cols-3 sm:grid-cols-6 gap-px bg-gray-200 rounded-lg overflow-hidden">
-        <MetricCell label={t.metrics.marketCap}       value={formatLargeNumber(data.marketCap)} />
-        <MetricCell label={t.metrics.enterpriseValue} value={formatLargeNumber(data.enterpriseValue)} />
+        <MetricCell label={t.metrics.marketCap}       value={formatLargeNumber(data.marketCap, data.currency)} />
+        <MetricCell label={t.metrics.enterpriseValue} value={formatLargeNumber(data.enterpriseValue, data.currency)} />
         <MetricCell
           label={t.metrics.netDebt}
-          value={formatLargeNumber(data.netDebt)}
+          value={formatLargeNumber(data.netDebt, data.currency)}
           highlight={data.netDebt < 0 ? 'green' : data.netDebt > data.marketCap * 0.5 ? 'red' : undefined}
         />
         <MetricCell
           label={t.metrics.ttmFCF}
-          value={formatLargeNumber(data.freeCashFlow)}
+          value={formatLargeNumber(data.freeCashFlow, data.currency)}
           highlight={data.freeCashFlow < 0 ? 'red' : 'green'}
         />
         <MetricCell

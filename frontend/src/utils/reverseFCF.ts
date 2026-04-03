@@ -317,9 +317,9 @@ export function runReverseFCFAnalysis(
     ? []
     : buildSensitivityCurve(baseRevenue, netDebt, longTermInvestments, shares, drivers, waccRate, terminalGrowthRate);
 
-  // Supporting metrics — use implied operating EV for FCF yield (operating-only basis)
-  const fcfYield = impliedOperatingEV > 0 ? currentNOPAT / impliedOperatingEV : 0;
-  const currentFCF = projectedCashFlows.length > 0 ? projectedCashFlows[0].fcf : 0;
+  // Supporting metrics — use reported/current FCF on an operating-EV basis.
+  const currentFCF = data.freeCashFlow;
+  const fcfYield = impliedOperatingEV > 0 ? currentFCF / impliedOperatingEV : 0;
 
   return {
     impliedForecastYears,

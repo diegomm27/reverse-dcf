@@ -104,7 +104,7 @@ export const translations = {
       ssSection: 'Step 2 — Steady-State Check (0Y)',
       ssFormula: 'NOPAT × (1 + g) ÷ WACC',
       ssOperatingEV: '→ Steady-State Operating Value',
-      ssNote: 'Mauboussin: beyond forecast period, RONIC = WACC → growth adds no value → CV = NOPAT / WACC',
+      ssNote: 'Mauboussin: beyond forecast period, RONIC = WACC -> growth adds no value -> CV = next-year NOPAT / WACC',
       // EV bridge
       evSection: 'Step 3 — Implied Operating EV',
       totalMarketEV: 'Total Market EV (Yahoo)',
@@ -266,7 +266,7 @@ export const translations = {
       ssSection: 'Paso 2 — Verificación Estado Estable (0A)',
       ssFormula: 'NOPAT × (1 + g) ÷ WACC',
       ssOperatingEV: '→ Valor Operativo Estado Estable',
-      ssNote: 'Mauboussin: más allá del período de pronóstico, RONIC = WACC → el crecimiento no agrega valor → CV = NOPAT / WACC',
+      ssNote: 'Mauboussin: mas alla del periodo de pronostico, RONIC = WACC -> el crecimiento no agrega valor -> CV = NOPAT del proximo ano / WACC',
       evSection: 'Paso 3 — EV Operativo Implícito',
       totalMarketEV: 'EV Total de Mercado (Yahoo)',
       longTermInv: '(−) Inversiones a Largo Plazo',

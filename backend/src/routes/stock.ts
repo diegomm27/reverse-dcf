@@ -18,6 +18,65 @@ function safeNumberOrNull(val: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+function normalizeCurrencyUnit(currency: string | null | undefined): { code: string; unitScale: number } {
+  const rawCode = String(currency ?? '').trim();
+  if (!rawCode) return { code: 'USD', unitScale: 1 };
+
+  switch (rawCode) {
+    case 'GBp':
+    case 'GBX':
+      return { code: 'GBP', unitScale: 0.01 };
+    case 'ZAc':
+      return { code: 'ZAR', unitScale: 0.01 };
+    case 'ILA':
+      return { code: 'ILS', unitScale: 0.01 };
+    default:
+      return { code: rawCode.toUpperCase(), unitScale: 1 };
+  }
+}
+
+async function getFxRateToQuoteCurrency(
+  yf: InstanceType<typeof YahooFinance>,
+  fromCurrency: string | null | undefined,
+  toCurrency: string | null | undefined
+): Promise<number> {
+  const from = normalizeCurrencyUnit(fromCurrency);
+  const to = normalizeCurrencyUnit(toCurrency);
+
+  if (from.code === to.code) {
+    return from.unitScale / to.unitScale;
+  }
+
+  const readFxQuote = async (symbol: string, invert = false): Promise<number> => {
+    try {
+      const fxQuote = await yf.quote(symbol);
+      const rate = safeNumber(
+        fxQuote.regularMarketPrice ?? fxQuote.regularMarketPreviousClose ?? fxQuote.previousClose
+      );
+
+      if (rate > 0) {
+        return invert ? 1 / rate : rate;
+      }
+    } catch {
+      // Fall through to alternate symbol or 1.0 fallback below.
+    }
+
+    return 0;
+  };
+
+  const directRate = await readFxQuote(`${from.code}${to.code}=X`);
+  if (directRate > 0) {
+    return directRate * (from.unitScale / to.unitScale);
+  }
+
+  const inverseRate = await readFxQuote(`${to.code}${from.code}=X`, true);
+  if (inverseRate > 0) {
+    return inverseRate * (from.unitScale / to.unitScale);
+  }
+
+  return 1;
+}
+
 router.get('/:ticker', async (req: Request, res: Response) => {
   const { ticker } = req.params;
   const symbol = ticker.toUpperCase().trim();
@@ -59,12 +118,34 @@ router.get('/:ticker', async (req: Request, res: Response) => {
     const priceChangePct = safeNumber(
       priceModule.regularMarketChangePercent ?? quote.regularMarketChangePercent
     );
+    const currency = String(priceModule.currency ?? quote.currency ?? 'USD');
+    const reportingCurrency = String(
+      fd.financialCurrency ?? quote.financialCurrency ?? priceModule.financialCurrency ?? currency
+    );
+    const fxRateToQuoteCurrency = await getFxRateToQuoteCurrency(
+      yahooFinance,
+      reportingCurrency,
+      currency
+    );
+    const toQuoteCurrency = (value: unknown): number => safeNumber(value) * fxRateToQuoteCurrency;
     const marketCap = safeNumber(priceModule.marketCap ?? quote.marketCap);
-    const sharesOutstanding = safeNumber(ks.sharesOutstanding);
+    const reportedSharesOutstanding = safeNumber(
+      priceModule.sharesOutstanding ??
+      quote.sharesOutstanding ??
+      ks.impliedSharesOutstanding ??
+      ks.sharesOutstanding
+    );
+    const impliedSharesOutstanding = price > 0 && marketCap > 0 ? marketCap / price : 0;
+    const sharesOutstanding =
+      impliedSharesOutstanding > 0 &&
+      (!reportedSharesOutstanding ||
+        Math.abs(reportedSharesOutstanding - impliedSharesOutstanding) / impliedSharesOutstanding > 0.1)
+        ? impliedSharesOutstanding
+        : reportedSharesOutstanding || impliedSharesOutstanding;
 
     // --- Debt & Cash ---
-    const totalDebt = safeNumber(fd.totalDebt);
-    const totalCash = safeNumber(fd.totalCash);
+    const totalDebt = toQuoteCurrency(fd.totalDebt);
+    const totalCash = toQuoteCurrency(fd.totalCash);
     const netDebt = totalDebt - totalCash;
 
     // --- Enterprise Value ---
@@ -74,20 +155,20 @@ router.get('/:ticker', async (req: Request, res: Response) => {
     }
 
     // === Income Statement (current and prior year) ===
-    const revenue = safeNumber(fd.totalRevenue ?? fs0.totalRevenue);
-    const priorRevenue = safeNumber(fs1.totalRevenue);
+    const revenue = toQuoteCurrency(fd.totalRevenue ?? fs0.totalRevenue);
+    const priorRevenue = toQuoteCurrency(fs1.totalRevenue);
 
     // EBIT: prefer explicit EBIT field, fall back to operating income
-    const ebit = safeNumber(fs0.EBIT ?? fs0.operatingIncome);
+    const ebit = toQuoteCurrency(fs0.EBIT ?? fs0.operatingIncome);
     const operatingMargin = revenue > 0 ? ebit / revenue : safeNumber(fd.operatingMargins);
 
     // Interest expense: prefer non-operating line; both signs possible in the API
     const interestExpense = Math.abs(
-      safeNumber(fs0.interestExpense ?? fs0.interestExpenseNonOperating)
+      toQuoteCurrency(fs0.interestExpense ?? fs0.interestExpenseNonOperating)
     );
-    const incomeTaxExpense = safeNumber(fs0.taxProvision);
-    const incomeBeforeTax = safeNumber(fs0.pretaxIncome);
-    const netIncome = safeNumber(fs0.netIncome);
+    const incomeTaxExpense = toQuoteCurrency(fs0.taxProvision);
+    const incomeBeforeTax = toQuoteCurrency(fs0.pretaxIncome);
+    const netIncome = toQuoteCurrency(fs0.netIncome);
 
     // Cash tax rate: taxes paid / EBIT — clamp to 0%–50%
     const cashTaxRate =
@@ -106,20 +187,20 @@ router.get('/:ticker', async (req: Request, res: Response) => {
 
     // === Cash Flow Statement ===
     // capitalExpenditure is negative in Yahoo raw data → abs()
-    const capitalExpenditures = Math.abs(safeNumber(fs0.capitalExpenditure));
-    const depreciation = safeNumber(
+    const capitalExpenditures = Math.abs(toQuoteCurrency(fs0.capitalExpenditure));
+    const depreciation = toQuoteCurrency(
       fs0.depreciationAndAmortization ?? fs0.depreciation ?? fs0.depreciationAmortizationDepletion
     );
     // operatingCashflow is still reliable from financialData (TTM)
-    const operatingCashFlow = safeNumber(fd.operatingCashflow ?? fs0.operatingCashFlow);
+    const operatingCashFlow = toQuoteCurrency(fd.operatingCashflow ?? fs0.operatingCashFlow);
 
     // === Balance Sheet: current and prior year ===
-    const currentAssets0 = safeNumber(fs0.currentAssets);
-    const currentLiabilities0 = safeNumber(fs0.currentLiabilities);
+    const currentAssets0 = toQuoteCurrency(fs0.currentAssets);
+    const currentLiabilities0 = toQuoteCurrency(fs0.currentLiabilities);
     const nwc0 = currentAssets0 - currentLiabilities0;
 
-    const currentAssets1 = safeNumber(fs1.currentAssets);
-    const currentLiabilities1 = safeNumber(fs1.currentLiabilities);
+    const currentAssets1 = toQuoteCurrency(fs1.currentAssets);
+    const currentLiabilities1 = toQuoteCurrency(fs1.currentLiabilities);
     const nwc1 = currentAssets1 - currentLiabilities1;
 
     // === Compute Operating Value Drivers (Mauboussin) ===
@@ -152,17 +233,22 @@ router.get('/:ticker', async (req: Request, res: Response) => {
       incrementalFixedCapitalRate: clamp(incrementalFixedCapitalRate, -0.5, 2.0),
     };
 
-    // FCF per Mauboussin: NOPAT − Incremental Investment
+    // Reported TTM FCF when Yahoo provides it; otherwise fall back to the
+    // modeled annual operating FCF derived from the value drivers.
     const incrementalInvestment =
       deltaSales *
       (operatingDrivers.incrementalWorkingCapitalRate + operatingDrivers.incrementalFixedCapitalRate);
-    const freeCashFlow = nopat - Math.max(0, incrementalInvestment);
+    const reportedFreeCashFlow = safeNumberOrNull(fd.freeCashflow);
+    const freeCashFlow =
+      reportedFreeCashFlow !== null
+        ? reportedFreeCashFlow * fxRateToQuoteCurrency
+        : nopat - incrementalInvestment;
 
     // --- Nonoperating Assets ---
     // Long-term investments: equity-method stakes, held-to-maturity bonds >1yr,
     // investments in affiliated companies. Short-term marketable securities are
     // already captured in totalCash (Yahoo Finance's financialData.totalCash).
-    const longTermInvestments = safeNumber(
+    const longTermInvestments = toQuoteCurrency(
       fs0.longTermInvestments ?? fs0.investmentsAndAdvances ?? 0
     );
 
@@ -171,7 +257,7 @@ router.get('/:ticker', async (req: Request, res: Response) => {
       .slice(-5)
       .map((s: any) => ({
         year: (s.date as Date).getFullYear(),
-        value: safeNumber(s.totalRevenue),
+        value: toQuoteCurrency(s.totalRevenue),
       }))
       .filter((d: any) => d.value !== 0);
 
@@ -197,7 +283,9 @@ router.get('/:ticker', async (req: Request, res: Response) => {
       industry: String((profile as any).industry ?? 'N/A'),
       description: String((profile as any).longBusinessSummary ?? ''),
       country: String((profile as any).country ?? 'N/A'),
-      currency: String(priceModule.currency ?? quote.currency ?? 'USD'),
+      currency,
+      reportingCurrency,
+      fxRateToQuoteCurrency,
       exchange: String(priceModule.exchangeName ?? quote.fullExchangeName ?? 'N/A'),
 
       price,

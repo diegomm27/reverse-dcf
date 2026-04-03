@@ -21,6 +21,8 @@ export interface StockFinancials {
   description: string;
   country: string;
   currency: string;
+  reportingCurrency: string;
+  fxRateToQuoteCurrency: number;
   exchange: string;
 
   price: number;

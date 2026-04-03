@@ -85,21 +85,21 @@ const FCFAnalysis: React.FC<FCFAnalysisProps> = ({ data, result, assumptions }) 
           <ComputationBlock
             title={fa.nopatSection}
             rows={[
-              { label: fa.baseRevenue,    value: formatLargeNumber(data.revenue),             note: 'latest annual' },
+              { label: fa.baseRevenue,    value: formatLargeNumber(data.revenue, data.currency),             note: 'latest annual' },
               { label: fa.opMarginLabel,  value: formatPercent(drivers.operatingProfitMargin), note: 'from drivers' },
-              { label: fa.operatingProfit,value: formatLargeNumber(operatingProfit),           bold: true },
+              { label: fa.operatingProfit,value: formatLargeNumber(operatingProfit, data.currency),           bold: true },
               { label: fa.cashTaxRateLabel,value: formatPercent(drivers.cashTaxRate),          note: 'from drivers' },
-              { label: fa.modelNopat,     value: formatLargeNumber(modelNOPAT),                bold: true, accent: true },
+              { label: fa.modelNopat,     value: formatLargeNumber(modelNOPAT, data.currency),                bold: true, accent: true },
             ]}
           />
 
           <ComputationBlock
             title={fa.ssSection}
             rows={[
-              { label: 'Model NOPAT',             value: formatLargeNumber(modelNOPAT) },
+              { label: 'Model NOPAT',             value: formatLargeNumber(modelNOPAT, data.currency) },
               { label: '× (1 + g)',               value: `× ${(1 + terminalGrowthRate).toFixed(4)}`, note: `g = ${formatPercent(terminalGrowthRate)}` },
               { label: '÷ WACC',                  value: `÷ ${formatPercent(waccRate)}`, note: 'RONIC = WACC assumed' },
-              { label: fa.ssOperatingEV,          value: formatLargeNumber(ssOperatingEV), bold: true, accent: true },
+              { label: fa.ssOperatingEV,          value: formatLargeNumber(ssOperatingEV, data.currency), bold: true, accent: true },
             ]}
             footnote={fa.ssNote}
           />
@@ -107,9 +107,9 @@ const FCFAnalysis: React.FC<FCFAnalysisProps> = ({ data, result, assumptions }) 
           <ComputationBlock
             title={fa.evSection}
             rows={[
-              { label: fa.totalMarketEV,  value: formatLargeNumber(totalMarketEV),     note: 'Yahoo Finance' },
-              { label: fa.longTermInv,    value: `(${formatLargeNumber(lti)})`,         note: 'balance sheet' },
-              { label: fa.impliedOpEV,    value: formatLargeNumber(impliedOperatingEV), bold: true, accent: true },
+              { label: fa.totalMarketEV,  value: formatLargeNumber(totalMarketEV, data.currency),     note: 'Yahoo Finance' },
+              { label: fa.longTermInv,    value: `(${formatLargeNumber(lti, data.currency)})`,         note: 'balance sheet' },
+              { label: fa.impliedOpEV,    value: formatLargeNumber(impliedOperatingEV, data.currency), bold: true, accent: true },
             ]}
             condition={
               pieIsZero
@@ -121,10 +121,10 @@ const FCFAnalysis: React.FC<FCFAnalysisProps> = ({ data, result, assumptions }) 
           <ComputationBlock
             title={fa.eqSection}
             rows={[
-              { label: fa.enterpriseValue,  value: formatLargeNumber(operatingEV10Y),          note: '10Y DCF' },
-              { label: fa.longTermInvAdd,   value: formatLargeNumber(lti),                      note: 'nonoperating' },
-              { label: fa.netDebt,          value: `(${formatLargeNumber(result.netDebt)})` },
-              { label: fa.equityValue,      value: formatLargeNumber(equityValue10Y),            bold: true },
+              { label: fa.enterpriseValue,  value: formatLargeNumber(operatingEV10Y, data.currency),          note: '10Y DCF' },
+              { label: fa.longTermInvAdd,   value: formatLargeNumber(lti, data.currency),                      note: 'nonoperating' },
+              { label: fa.netDebt,          value: `(${formatLargeNumber(result.netDebt, data.currency)})` },
+              { label: fa.equityValue,      value: formatLargeNumber(equityValue10Y, data.currency),            bold: true },
               { label: '÷ ' + fa.sharesOut, value: `${(data.sharesOutstanding / 1e9).toFixed(3)}B` },
               { label: fa.intrinsicPrice,   value: formatCurrency(result.intrinsicValue10Y, data.currency), bold: true, accent: true },
             ]}
@@ -132,13 +132,16 @@ const FCFAnalysis: React.FC<FCFAnalysisProps> = ({ data, result, assumptions }) 
 
           {/* Reference data */}
           <div className="p-3 bg-gray-50 rounded-lg text-xs font-mono text-gray-400 flex flex-wrap gap-x-6 gap-y-1.5">
-            <span>{fa.marketCap}: <span className="text-gray-700">{formatLargeNumber(data.marketCap)}</span></span>
-            <span>{fa.ttmFCF}: <span className="text-gray-700">{formatLargeNumber(data.freeCashFlow)}</span></span>
+            <span>{fa.marketCap}: <span className="text-gray-700">{formatLargeNumber(data.marketCap, data.currency)}</span></span>
+            <span>{fa.ttmFCF}: <span className="text-gray-700">{formatLargeNumber(data.freeCashFlow, data.currency)}</span></span>
             <span>WACC: <span className="text-gray-700">{formatPercent(waccRate)}</span></span>
             <span>g: <span className="text-gray-700">{formatPercent(terminalGrowthRate)}</span></span>
             <span>β: <span className="text-gray-700">{waccAsm.beta.toFixed(2)}</span></span>
             <span>Rf: <span className="text-gray-700">{formatPercent(waccAsm.riskFreeRate)}</span></span>
             <span>ERP: <span className="text-gray-700">{formatPercent(waccAsm.marketRiskPremium)}</span></span>
+            {data.reportingCurrency !== data.currency && (
+              <span>FS FX: <span className="text-gray-700">{`${data.reportingCurrency}->${data.currency} @ ${data.fxRateToQuoteCurrency.toFixed(4)}x`}</span></span>
+            )}
           </div>
         </div>
       </div>

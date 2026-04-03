@@ -22,6 +22,8 @@ export interface StockFinancials {
   description: string;
   country: string;
   currency: string;
+  reportingCurrency: string;
+  fxRateToQuoteCurrency: number;
   exchange: string;
 
   // Price & Valuation
@@ -36,6 +38,7 @@ export interface StockFinancials {
   totalDebt: number;
   totalCash: number;
   netDebt: number;
+  longTermInvestments: number;
 
   // Current Financials
   revenue: number;
