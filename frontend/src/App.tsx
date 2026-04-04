@@ -14,6 +14,7 @@ import { StockFinancials, AnalysisAssumptions, ReverseFCFResult } from './types'
 import { fetchStockData } from './services/api';
 import { buildDefaultAssumptions, runReverseFCFAnalysis } from './utils/reverseFCF';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
+import AdBanner from './components/AdBanner';
 
 type AppStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -203,10 +204,10 @@ const AppInner: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen flex-col">
       <Header onHome={handleHome} />
 
-      <main className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 sm:px-6 lg:px-8">
         {status === 'loaded' && (
           <div className="pb-1 pt-5">
             <SearchBar onSearch={handleSearch} loading={false} className="max-w-2xl" />
@@ -214,7 +215,12 @@ const AppInner: React.FC = () => {
           </div>
         )}
 
-        {status === 'idle' && <Hero onSearch={handleSearch} loading={false} />}
+        {status === 'idle' && (
+          <>
+            <Hero onSearch={handleSearch} loading={false} />
+            <AdBanner slot="1234567890" format="horizontal" className="mx-auto max-w-4xl px-4 pb-8" />
+          </>
+        )}
         {status === 'loading' && <LoadingSpinner ticker={currentTicker} />}
         {status === 'error' && <ErrorMessage message={errorMsg} onRetry={handleRetry} />}
 
@@ -323,9 +329,18 @@ const AppInner: React.FC = () => {
             <div className="mx-auto max-w-2xl pb-2 text-center text-[11px] leading-relaxed text-[color:var(--muted-soft)]">
               {t.disclaimer}
             </div>
+
+            <AdBanner slot="0987654321" format="horizontal" className="mt-4" />
           </div>
         )}
       </main>
+
+      <footer className="border-t border-[color:var(--border)] bg-[color:var(--surface)]">
+        <AdBanner slot="1122334455" format="horizontal" className="mx-auto max-w-5xl px-4 py-3" />
+        <p className="pb-4 text-center text-[10px] text-[color:var(--muted-soft)]">
+          © {new Date().getFullYear()} Reverse FCF · Expectation Investing
+        </p>
+      </footer>
     </div>
   );
 };
