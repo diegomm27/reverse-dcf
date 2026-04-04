@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Sparkles } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface SearchBarProps {
@@ -32,52 +32,54 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, loading, className = ''
 
   return (
     <div className={`w-full ${className}`}>
-      <form onSubmit={handleSubmit} className="relative">
-        <div className="relative flex items-center">
-          <Search className="absolute left-4 w-5 h-5 text-gray-400 pointer-events-none" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={(e) => setValue(e.target.value.toUpperCase())}
-            placeholder={t.search.placeholder}
-            className="w-full pl-12 pr-32 py-3.5 bg-white border border-gray-300 text-gray-900
-                       text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent
-                       placeholder-gray-400 transition-colors duration-150 font-mono uppercase tracking-widest"
-            disabled={loading}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="submit"
-            disabled={!value.trim() || loading}
-            className="absolute right-2 btn-primary py-2 px-4 flex items-center gap-2 text-sm"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>{t.search.loading}</span>
-              </>
-            ) : (
-              <>
-                <Search className="w-4 h-4" />
-                <span>{t.search.analyze}</span>
-              </>
-            )}
-          </button>
+      <form onSubmit={handleSubmit}>
+        <div className="card card-interactive relative overflow-hidden p-1.5 sm:p-2">
+          <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--accent)]" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={value}
+                onChange={(e) => setValue(e.target.value.toUpperCase())}
+                placeholder={t.search.placeholder}
+                className="input-field border-0 bg-transparent pl-10 pr-4 text-sm font-semibold uppercase tracking-[0.14em] shadow-none focus:shadow-none"
+                disabled={loading}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={!value.trim() || loading}
+              className="btn-primary min-w-[130px] shrink-0"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{t.search.loading}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>{t.search.analyze}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </form>
 
-      <div className="mt-3 flex flex-wrap gap-2 justify-center">
-        <span className="text-xs text-gray-400 self-center mr-1">{t.search.try}</span>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <span className="label mr-1">{t.search.try}</span>
         {POPULAR_TICKERS.map((ticker) => (
           <button
             key={ticker}
+            type="button"
             onClick={() => handleChip(ticker)}
             disabled={loading}
-            className="px-2.5 py-1 text-xs font-mono font-medium bg-white border border-gray-200
-                       text-gray-500 hover:text-gray-900 hover:border-gray-400
-                       rounded-md transition-colors duration-150 disabled:opacity-40"
+            className="ticker-chip"
           >
             {ticker}
           </button>

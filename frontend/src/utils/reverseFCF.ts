@@ -7,35 +7,32 @@ import {
   RecommendationType,
   SensitivityPoint,
   ProjectedYear,
+  ContinuingValueMethod,
+  ValuationBreakdown,
 } from '../types';
 
-// ─── WACC Calculation (auto-filled from source data) ──────────────────────────
+const MAX_FORECAST_YEARS = 50;
 
 export function calculateWACC(data: StockFinancials): WACCAssumptions {
-  const riskFreeRate = 0.045; // ~US 10Y Treasury
-  const marketRiskPremium = 0.055; // Damodaran ERP
+  const riskFreeRate = 0.045;
+  const marketRiskPremium = 0.055;
 
-  // Beta from Yahoo Finance
   const beta = data.beta > 0 ? data.beta : 1.0;
   const costOfEquity = riskFreeRate + beta * marketRiskPremium;
 
-  // Cost of debt: Interest Expense / Total Debt (YTM proxy)
   const costOfDebt =
     data.totalDebt > 10_000_000 && data.interestExpense > 0
       ? Math.max(0.02, Math.min(0.15, data.interestExpense / data.totalDebt))
       : riskFreeRate + 0.015;
 
-  // Tax rate for WACC shield: GAAP effective rate
   const taxRate = data.taxRate > 0 ? data.taxRate : 0.21;
 
-  // Capital structure weights (market value basis)
   const debtWeight =
     data.marketCap + data.totalDebt > 0
       ? data.totalDebt / (data.marketCap + data.totalDebt)
       : 0;
   const equityWeight = 1 - debtWeight;
 
-  // WACC = (E/V) × Ke + (D/V) × Kd × (1−t)
   const wacc =
     equityWeight * costOfEquity + debtWeight * costOfDebt * (1 - taxRate);
 
@@ -55,20 +52,16 @@ export function buildDefaultAssumptions(data: StockFinancials): AnalysisAssumpti
   return {
     wacc: calculateWACC(data),
     drivers: { ...data.operatingDrivers },
-    terminalGrowthRate: 0.025, // ~inflation
+    terminalGrowthRate: 0.025,
+    continuingValueMethod: 'perpetuityWithInflation',
+    additionalNonOperatingAssets: 0,
   };
 }
 
-// ─── Mauboussin FCF Projection Engine ─────────────────────────────────────────
+function calculateNOPAT(baseRevenue: number, drivers: OperatingDrivers): number {
+  return baseRevenue * drivers.operatingProfitMargin * (1 - drivers.cashTaxRate);
+}
 
-/**
- * Project FCF for each year using Mauboussin's operating value drivers:
- *   Sales(t) = Sales(t-1) × (1 + salesGrowthRate)
- *   NOPAT(t) = Sales(t) × OPM × (1 − cashTaxRate)
- *   ΔSales(t) = Sales(t) − Sales(t-1)
- *   IncrementalInvestment(t) = ΔSales × (incWCRate + incFCRate)
- *   FCF(t) = NOPAT(t) − IncrementalInvestment(t)
- */
 function projectCashFlows(
   baseRevenue: number,
   drivers: OperatingDrivers,
@@ -78,18 +71,22 @@ function projectCashFlows(
   const projected: ProjectedYear[] = [];
   let prevRevenue = baseRevenue;
 
-  for (let t = 1; t <= years; t++) {
+  for (let year = 1; year <= years; year += 1) {
     const revenue = prevRevenue * (1 + drivers.salesGrowthRate);
     const operatingProfit = revenue * drivers.operatingProfitMargin;
     const nopat = operatingProfit * (1 - drivers.cashTaxRate);
     const deltaSales = revenue - prevRevenue;
     const incrementalInvestment =
-      deltaSales * (drivers.incrementalWorkingCapitalRate + drivers.incrementalFixedCapitalRate);
+      deltaSales *
+      (
+        drivers.incrementalWorkingCapitalRate +
+        drivers.incrementalFixedCapitalRate
+      );
     const fcf = nopat - incrementalInvestment;
-    const pvFCF = fcf / Math.pow(1 + wacc, t);
+    const pvFCF = fcf / Math.pow(1 + wacc, year);
 
     projected.push({
-      year: t,
+      year,
       revenue,
       nopat,
       incrementalInvestment,
@@ -103,121 +100,269 @@ function projectCashFlows(
   return projected;
 }
 
-/**
- * Compute Enterprise Value (corporate value) using Mauboussin's framework:
- *   - Explicit forecast: project FCF for `years` using operating drivers
- *   - Residual value: perpetuity at terminal growth (no value creation beyond forecast)
- */
-function computeCorporateValue(
+function getTerminalStage(
+  baseRevenue: number,
+  drivers: OperatingDrivers,
+  wacc: number,
+  years: number
+): { projected: ProjectedYear[]; terminalRevenue: number; terminalNOPAT: number } {
+  if (years <= 0) {
+    return {
+      projected: [],
+      terminalRevenue: baseRevenue,
+      terminalNOPAT: calculateNOPAT(baseRevenue, drivers),
+    };
+  }
+
+  const projected = projectCashFlows(baseRevenue, drivers, wacc, years);
+  const lastYear = projected[projected.length - 1];
+
+  return {
+    projected,
+    terminalRevenue: lastYear?.revenue ?? baseRevenue,
+    terminalNOPAT: lastYear?.nopat ?? calculateNOPAT(baseRevenue, drivers),
+  };
+}
+
+function computeContinuingValue(
+  terminalRevenue: number,
+  terminalNOPAT: number,
+  drivers: OperatingDrivers,
+  wacc: number,
+  terminalGrowthRate: number,
+  method: ContinuingValueMethod
+): number {
+  if (wacc <= 0) return NaN;
+
+  if (method === 'perpetuity') {
+    return terminalNOPAT / wacc;
+  }
+
+  if (wacc <= terminalGrowthRate) {
+    return NaN;
+  }
+
+  if (method === 'ronicConvergence') {
+    const nextNOPAT = terminalNOPAT * (1 + terminalGrowthRate);
+    return nextNOPAT / wacc;
+  }
+
+  const nextRevenue = terminalRevenue * (1 + terminalGrowthRate);
+  const nextNOPAT = nextRevenue * drivers.operatingProfitMargin * (1 - drivers.cashTaxRate);
+  const incrementalInvestment =
+    (nextRevenue - terminalRevenue) *
+    (
+      drivers.incrementalWorkingCapitalRate +
+      drivers.incrementalFixedCapitalRate
+    );
+  const nextFCF = nextNOPAT - incrementalInvestment;
+
+  return nextFCF / (wacc - terminalGrowthRate);
+}
+
+function corporateToShareholderValue(
+  corporateValue: number,
+  nonOperatingAssets: number,
+  debt: number,
+  sharesOutstanding: number
+): { shareholderValue: number; valuePerShare: number } {
+  const shareholderValue = corporateValue + nonOperatingAssets - debt;
+  const valuePerShare =
+    sharesOutstanding > 0 ? shareholderValue / sharesOutstanding : NaN;
+
+  return { shareholderValue, valuePerShare };
+}
+
+function computeValuationBreakdown(
   baseRevenue: number,
   drivers: OperatingDrivers,
   wacc: number,
   years: number,
-  terminalGrowthRate: number
-): number {
-  if (wacc <= terminalGrowthRate) return Infinity;
-
-  const projected = projectCashFlows(baseRevenue, drivers, wacc, years);
-  const pvExplicit = projected.reduce((sum, p) => sum + p.pvFCF, 0);
-
-  // Residual / continuing value after the explicit forecast
-  // At the end of the forecast, the company grows only at terminalGrowthRate
-  // and earns no economic profit above WACC → Gordon Growth on last year's NOPAT
-  const lastYear = projected[projected.length - 1];
-  let residualValue: number;
-
-  if (lastYear) {
-    // Mauboussin "Expectations Investing" continuing value (p. 62):
-    // Beyond the competitive advantage period, RONIC converges to WACC.
-    // When RONIC = WACC, growth adds zero NPV → reinvestment rate = g/WACC
-    // FCF_{T+1} = NOPAT_{T+1} × (1 − g/WACC)
-    // CV = FCF_{T+1} / (WACC − g) = NOPAT_{T+1} / WACC
-    // (the (WACC−g) terms cancel — CV is independent of g when RONIC=WACC)
-    residualValue = (lastYear.nopat * (1 + terminalGrowthRate)) / wacc;
-    residualValue /= Math.pow(1 + wacc, years); // discount to present
-  } else {
-    // 0 years of explicit forecast: immediate steady-state from current NOPAT
-    const currentNOPAT = baseRevenue * drivers.operatingProfitMargin * (1 - drivers.cashTaxRate);
-    residualValue = (currentNOPAT * (1 + terminalGrowthRate)) / wacc;
-  }
-
-  return pvExplicit + residualValue;
-}
-
-/**
- * Mauboussin shareholder value bridge:
- *   Equity = OperatingValue + NonoperatingAssets − TotalDebt + Cash
- *          = OperatingValue + LongTermInvestments − NetDebt
- *
- * LongTermInvestments covers equity-method stakes, affiliated company
- * investments, and held-to-maturity securities >1yr.
- * Short-term marketable securities are already captured in totalCash
- * (Yahoo Finance's financialData.totalCash includes them), so they
- * reduce netDebt automatically.
- *
- * NOTE: overfunded pensions, NOL carryforwards, and nonconsolidated
- * subsidiaries at fair value are not available from Yahoo Finance and
- * are therefore omitted — a known but unavoidable limitation.
- */
-function evToEquityPerShare(
-  operatingEV: number,
-  netDebt: number,
-  longTermInvestments: number,
+  terminalGrowthRate: number,
+  method: ContinuingValueMethod,
+  nonOperatingAssets: number,
+  debt: number,
   sharesOutstanding: number
-): number {
-  if (sharesOutstanding <= 0) return 0;
-  return Math.max(0, (operatingEV + longTermInvestments - netDebt) / sharesOutstanding);
+): ValuationBreakdown {
+  const { projected, terminalRevenue, terminalNOPAT } = getTerminalStage(
+    baseRevenue,
+    drivers,
+    wacc,
+    years
+  );
+  const presentValueForecastFCF = projected.reduce((sum, year) => sum + year.pvFCF, 0);
+  const continuingValue = computeContinuingValue(
+    terminalRevenue,
+    terminalNOPAT,
+    drivers,
+    wacc,
+    terminalGrowthRate,
+    method
+  );
+  const presentValueContinuingValue = isFinite(continuingValue)
+    ? continuingValue / Math.pow(1 + wacc, years)
+    : continuingValue;
+  const corporateValue = presentValueForecastFCF + presentValueContinuingValue;
+  const { shareholderValue, valuePerShare } = corporateToShareholderValue(
+    corporateValue,
+    nonOperatingAssets,
+    debt,
+    sharesOutstanding
+  );
+
+  return {
+    forecastYears: years,
+    presentValueForecastFCF,
+    continuingValue,
+    presentValueContinuingValue,
+    corporateValue,
+    shareholderValue,
+    valuePerShare,
+  };
 }
 
-// ─── Implied Forecast Period (PIE) ────────────────────────────────────────────
+function interpolateBreakdown(
+  lower: ValuationBreakdown,
+  upper: ValuationBreakdown,
+  forecastYears: number
+): ValuationBreakdown {
+  const span = upper.forecastYears - lower.forecastYears;
+  const weight = span > 0 ? (forecastYears - lower.forecastYears) / span : 0;
+  const lerp = (a: number, b: number) => a + weight * (b - a);
 
-/**
- * CORE: Given current operating drivers, find how many years of that performance
- * the stock price requires. Binary search on forecast period.
- */
-export function findImpliedForecastYears(
+  return {
+    forecastYears,
+    presentValueForecastFCF: lerp(
+      lower.presentValueForecastFCF,
+      upper.presentValueForecastFCF
+    ),
+    continuingValue: lerp(lower.continuingValue, upper.continuingValue),
+    presentValueContinuingValue: lerp(
+      lower.presentValueContinuingValue,
+      upper.presentValueContinuingValue
+    ),
+    corporateValue: lerp(lower.corporateValue, upper.corporateValue),
+    shareholderValue: lerp(lower.shareholderValue, upper.shareholderValue),
+    valuePerShare: lerp(lower.valuePerShare, upper.valuePerShare),
+  };
+}
+
+function buildBreakdownSeries(
   baseRevenue: number,
-  marketEV: number,
   drivers: OperatingDrivers,
   wacc: number,
-  terminalGrowthRate: number
-): number {
-  const currentNOPAT = baseRevenue * drivers.operatingProfitMargin * (1 - drivers.cashTaxRate);
-  if (currentNOPAT <= 0 || marketEV <= 0) return NaN;
+  terminalGrowthRate: number,
+  method: ContinuingValueMethod,
+  nonOperatingAssets: number,
+  debt: number,
+  sharesOutstanding: number
+): ValuationBreakdown[] {
+  const breakdowns: ValuationBreakdown[] = [];
 
-  // At 0 years (no explicit forecast, immediate steady-state)
-  const ev0 = computeCorporateValue(baseRevenue, drivers, wacc, 0, terminalGrowthRate);
-  if (ev0 >= marketEV) return 0;
-
-  // At max
-  const MAX_YEARS = 50;
-  const evMax = computeCorporateValue(baseRevenue, drivers, wacc, MAX_YEARS, terminalGrowthRate);
-  if (evMax < marketEV) return MAX_YEARS;
-
-  // Binary search
-  let lo = 0;
-  let hi = MAX_YEARS;
-  for (let i = 0; i < 200; i++) {
-    const mid = (lo + hi) / 2;
-    const midFloor = Math.floor(mid);
-    const midCeil = midFloor + 1;
-    const evFloor = computeCorporateValue(baseRevenue, drivers, wacc, midFloor, terminalGrowthRate);
-    const evCeil = computeCorporateValue(baseRevenue, drivers, wacc, midCeil, terminalGrowthRate);
-    const frac = mid - midFloor;
-    const evMid = evFloor + frac * (evCeil - evFloor);
-
-    if (evMid < marketEV) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-    if (hi - lo < 0.01) break;
+  for (let years = 0; years <= MAX_FORECAST_YEARS; years += 1) {
+    breakdowns.push(
+      computeValuationBreakdown(
+        baseRevenue,
+        drivers,
+        wacc,
+        years,
+        terminalGrowthRate,
+        method,
+        nonOperatingAssets,
+        debt,
+        sharesOutstanding
+      )
+    );
   }
 
-  return Math.round(((lo + hi) / 2) * 10) / 10;
+  return breakdowns;
 }
 
-// ─── Recommendation Logic ─────────────────────────────────────────────────────
+function solveImpliedForecastPeriod(
+  targetShareholderValue: number,
+  breakdowns: ValuationBreakdown[]
+): { impliedForecastYears: number; impliedBreakdown: ValuationBreakdown } {
+  const first = breakdowns[0];
+
+  if (!first || targetShareholderValue <= 0) {
+    return {
+      impliedForecastYears: NaN,
+      impliedBreakdown: {
+        forecastYears: NaN,
+        presentValueForecastFCF: NaN,
+        continuingValue: NaN,
+        presentValueContinuingValue: NaN,
+        corporateValue: NaN,
+        shareholderValue: NaN,
+        valuePerShare: NaN,
+      },
+    };
+  }
+
+  if (!isFinite(first.shareholderValue) || first.shareholderValue >= targetShareholderValue) {
+    return {
+      impliedForecastYears: 0,
+      impliedBreakdown: first,
+    };
+  }
+
+  let closest = first;
+  let closestGap = Math.abs(first.shareholderValue - targetShareholderValue);
+
+  for (let index = 1; index < breakdowns.length; index += 1) {
+    const previous = breakdowns[index - 1];
+    const current = breakdowns[index];
+    const currentGap = Math.abs(current.shareholderValue - targetShareholderValue);
+
+    if (currentGap < closestGap) {
+      closest = current;
+      closestGap = currentGap;
+    }
+
+    const previousDiff = previous.shareholderValue - targetShareholderValue;
+    const currentDiff = current.shareholderValue - targetShareholderValue;
+
+    if (currentDiff === 0) {
+      return {
+        impliedForecastYears: current.forecastYears,
+        impliedBreakdown: current,
+      };
+    }
+
+    if (
+      isFinite(previousDiff) &&
+      isFinite(currentDiff) &&
+      ((previousDiff < 0 && currentDiff > 0) ||
+        (previousDiff > 0 && currentDiff < 0))
+    ) {
+      const weight =
+        (targetShareholderValue - previous.shareholderValue) /
+        (current.shareholderValue - previous.shareholderValue);
+      const rawYears =
+        previous.forecastYears +
+        weight * (current.forecastYears - previous.forecastYears);
+      const impliedForecastYears = Math.round(rawYears * 10) / 10;
+
+      return {
+        impliedForecastYears,
+        impliedBreakdown: interpolateBreakdown(previous, current, rawYears),
+      };
+    }
+  }
+
+  const last = breakdowns[breakdowns.length - 1];
+  if (last && last.shareholderValue < targetShareholderValue) {
+    return {
+      impliedForecastYears: MAX_FORECAST_YEARS,
+      impliedBreakdown: last,
+    };
+  }
+
+  return {
+    impliedForecastYears: closest.forecastYears,
+    impliedBreakdown: closest,
+  };
+}
 
 export function getRecommendation(impliedYears: number): RecommendationType {
   if (!isFinite(impliedYears)) return 'N/A';
@@ -234,109 +379,123 @@ export function getRecommendationStrength(impliedYears: number): number {
   return Math.min(1, deviation / 15);
 }
 
-// ─── Sensitivity Curve ────────────────────────────────────────────────────────
-
 export function buildSensitivityCurve(
-  baseRevenue: number,
-  netDebt: number,
-  longTermInvestments: number,
-  sharesOutstanding: number,
-  drivers: OperatingDrivers,
-  wacc: number,
-  terminalGrowthRate: number
+  breakdowns: ValuationBreakdown[]
 ): SensitivityPoint[] {
-  const points: SensitivityPoint[] = [];
-  for (let y = 0; y <= 25; y++) {
-    const ev = computeCorporateValue(baseRevenue, drivers, wacc, y, terminalGrowthRate);
-    const price = evToEquityPerShare(ev, netDebt, longTermInvestments, sharesOutstanding);
-    points.push({ forecastYears: y, intrinsicValue: price });
-  }
-  return points;
+  return breakdowns.map((breakdown) => ({
+    forecastYears: breakdown.forecastYears,
+    intrinsicValue: breakdown.valuePerShare,
+  }));
 }
-
-// ─── Main Analysis Entry Point ────────────────────────────────────────────────
 
 export function runReverseFCFAnalysis(
   data: StockFinancials,
   assumptions: AnalysisAssumptions
 ): ReverseFCFResult {
-  const { wacc, drivers, terminalGrowthRate } = assumptions;
+  const {
+    wacc,
+    drivers,
+    terminalGrowthRate,
+    continuingValueMethod,
+    additionalNonOperatingAssets,
+  } = assumptions;
   const waccRate = wacc.wacc;
 
   const baseRevenue = data.revenue;
-  const totalEV = data.enterpriseValue;
-  const netDebt = data.netDebt;
-  const longTermInvestments = data.longTermInvestments;
-  const shares = data.sharesOutstanding;
+  const sharesOutstanding = data.sharesOutstanding;
+  const debt = data.totalDebt;
+  const reportedNonOperatingAssets = data.totalCash + data.longTermInvestments;
+  const totalNonOperatingAssets =
+    reportedNonOperatingAssets + additionalNonOperatingAssets;
+  const marketShareholderValue =
+    data.marketCap > 0 ? data.marketCap : data.price * sharesOutstanding;
+  const marketImpliedCorporateValue =
+    marketShareholderValue + debt - totalNonOperatingAssets;
 
-  // Implied OPERATING enterprise value:
-  // totalEV (from market) = OperatingEV + NonoperatingAssets
-  // We subtract long-term investments so the PIE binary search compares
-  // computed operating value against the market's implied operating EV only.
-  const impliedOperatingEV = Math.max(0, totalEV - longTermInvestments);
-
-  const currentNOPAT = baseRevenue * drivers.operatingProfitMargin * (1 - drivers.cashTaxRate);
+  const currentNOPAT = calculateNOPAT(baseRevenue, drivers);
   const isNegativeNOPAT = currentNOPAT <= 0;
 
-  // Core PIE — solve for operating value only
-  const impliedForecastYears = isNegativeNOPAT
-    ? NaN
-    : findImpliedForecastYears(baseRevenue, impliedOperatingEV, drivers, waccRate, terminalGrowthRate);
+  const emptyBreakdown: ValuationBreakdown = {
+    forecastYears: NaN,
+    presentValueForecastFCF: NaN,
+    continuingValue: NaN,
+    presentValueContinuingValue: NaN,
+    corporateValue: NaN,
+    shareholderValue: NaN,
+    valuePerShare: NaN,
+  };
 
-  // Projected cash flows (show first 10 years)
-  const projectedCashFlows = isNegativeNOPAT
-    ? []
-    : projectCashFlows(baseRevenue, drivers, waccRate, 10);
+  if (isNegativeNOPAT) {
+    return {
+      impliedForecastYears: NaN,
+      projectedCashFlows: [],
+      recommendation: 'N/A',
+      recommendationStrength: 0,
+      sensitivityCurve: [],
+      currentNOPAT,
+      currentFCF: data.freeCashFlow,
+      fcfYield: 0,
+      isNegativeNOPAT: true,
+      marketShareholderValue,
+      marketImpliedCorporateValue,
+      debt,
+      reportedNonOperatingAssets,
+      additionalNonOperatingAssets,
+      totalNonOperatingAssets,
+      steadyStateValue: NaN,
+      steadyStateCorporateValue: NaN,
+      steadyStateBreakdown: emptyBreakdown,
+      impliedBreakdown: emptyBreakdown,
+      continuingValueMethod,
+    };
+  }
 
-  // Intrinsic value at 10Y — equity bridge adds back long-term investments
-  const ev10Y = isNegativeNOPAT
-    ? 0
-    : computeCorporateValue(baseRevenue, drivers, waccRate, 10, terminalGrowthRate);
-  const intrinsicValue10Y = evToEquityPerShare(ev10Y, netDebt, longTermInvestments, shares);
-  const marginOfSafety =
-    intrinsicValue10Y > 0
-      ? (intrinsicValue10Y - data.price) / intrinsicValue10Y
-      : 0;
-
-  // Steady-state (0 years explicit forecast)
-  const ev0 = isNegativeNOPAT
-    ? 0
-    : computeCorporateValue(baseRevenue, drivers, waccRate, 0, terminalGrowthRate);
-  const steadyStateValue = evToEquityPerShare(ev0, netDebt, longTermInvestments, shares);
-
-  // Recommendation
-  const recommendation = isNegativeNOPAT
-    ? 'N/A'
-    : getRecommendation(impliedForecastYears);
-  const recommendationStrength = isNegativeNOPAT
-    ? 0
-    : getRecommendationStrength(impliedForecastYears);
-
-  // Sensitivity
-  const sensitivityCurve = isNegativeNOPAT
-    ? []
-    : buildSensitivityCurve(baseRevenue, netDebt, longTermInvestments, shares, drivers, waccRate, terminalGrowthRate);
-
-  // Supporting metrics — use reported/current FCF on an operating-EV basis.
+  const breakdowns = buildBreakdownSeries(
+    baseRevenue,
+    drivers,
+    waccRate,
+    terminalGrowthRate,
+    continuingValueMethod,
+    totalNonOperatingAssets,
+    debt,
+    sharesOutstanding
+  );
+  const steadyStateBreakdown = breakdowns[0] ?? emptyBreakdown;
+  const {
+    impliedForecastYears,
+    impliedBreakdown,
+  } = solveImpliedForecastPeriod(marketShareholderValue, breakdowns);
+  const projectedCashFlows = projectCashFlows(
+    baseRevenue,
+    drivers,
+    waccRate,
+    Math.min(MAX_FORECAST_YEARS, Math.max(10, Math.ceil(impliedForecastYears || 0)))
+  );
+  const sensitivityCurve = buildSensitivityCurve(breakdowns);
   const currentFCF = data.freeCashFlow;
-  const fcfYield = impliedOperatingEV > 0 ? currentFCF / impliedOperatingEV : 0;
+  const fcfYield =
+    marketImpliedCorporateValue > 0 ? currentFCF / marketImpliedCorporateValue : 0;
 
   return {
     impliedForecastYears,
     projectedCashFlows,
-    intrinsicValue10Y,
-    marginOfSafety,
-    recommendation,
-    recommendationStrength,
+    recommendation: getRecommendation(impliedForecastYears),
+    recommendationStrength: getRecommendationStrength(impliedForecastYears),
     sensitivityCurve,
     currentNOPAT,
     currentFCF,
     fcfYield,
-    isNegativeNOPAT,
-    enterpriseValue: impliedOperatingEV,
-    netDebt,
-    steadyStateValue,
-    steadyStateOperatingEV: ev0,
-    longTermInvestments,
+    isNegativeNOPAT: false,
+    marketShareholderValue,
+    marketImpliedCorporateValue,
+    debt,
+    reportedNonOperatingAssets,
+    additionalNonOperatingAssets,
+    totalNonOperatingAssets,
+    steadyStateValue: steadyStateBreakdown.valuePerShare,
+    steadyStateCorporateValue: steadyStateBreakdown.corporateValue,
+    steadyStateBreakdown,
+    impliedBreakdown,
+    continuingValueMethod,
   };
 }

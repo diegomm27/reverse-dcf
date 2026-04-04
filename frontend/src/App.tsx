@@ -3,7 +3,10 @@ import Header from './components/Header';
 import SearchBar from './components/SearchBar';
 import StockOverview from './components/StockOverview';
 import AssumptionsPanel from './components/AssumptionsPanel';
-import FCFAnalysis from './components/FCFAnalysis';
+import FCFAnalysis, {
+  FCFBreakdownCard,
+  FCFSensitivityCard,
+} from './components/FCFAnalysis';
 import RecommendationCard from './components/RecommendationCard';
 import LoadingSpinner from './components/LoadingSpinner';
 import ErrorMessage from './components/ErrorMessage';
@@ -23,43 +26,91 @@ const Hero: React.FC<HeroProps> = ({ onSearch, loading }) => {
   const { t } = useLanguage();
 
   return (
-    <section className="py-20 px-4 text-center">
-      <div className="mb-4 inline-flex items-center gap-2 px-3 py-1 bg-gray-100 border border-gray-200 rounded-full text-xs text-gray-500">
-        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
-        {t.hero.badge}
-      </div>
-      <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 leading-tight mb-4 tracking-tight">
-        {t.hero.title1}{' '}
-        <span className="gradient-text">{t.hero.title2}</span>?
-      </h1>
-      <p className="text-gray-500 text-lg max-w-2xl mx-auto mb-3 leading-relaxed">
-        {t.hero.subtitlePrefix}{' '}
-        <span className="text-gray-700 font-medium">{t.hero.subtitleBold}</span>{' '}
-        {t.hero.subtitleSuffix}
-      </p>
-      <p className="text-gray-400 text-sm mb-10">
-        {t.hero.methodology}{' '}
-        <span className="text-gray-500 italic">
-          Expectation Investing — Mauboussin & Rappaport
-        </span>
-      </p>
-      <SearchBar onSearch={onSearch} loading={loading} className="max-w-2xl mx-auto" />
+    <section className="px-4 pb-12 pt-8 sm:pt-10">
+      <div className="card relative overflow-hidden px-5 py-7 sm:px-8 sm:py-10 lg:px-10">
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-20 -top-20 h-60 w-60 rounded-full bg-[rgba(0,176,238,0.11)] blur-[80px]" />
+          <div className="absolute -right-10 top-0 h-48 w-48 rounded-full bg-[rgba(187,211,217,0.18)] blur-[60px]" />
+        </div>
 
-      <div className="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto text-sm">
-        {t.hero.steps.map(({ title, desc }, i) => (
-          <div
-            key={i}
-            className="card p-5 text-left"
-          >
-            <div className="w-7 h-7 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500 font-semibold text-sm mb-3">
-              {i + 1}
+        <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.85fr)] lg:items-start">
+          <div className="text-center lg:text-left">
+            <div className="accent-chip mb-4">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-strong)] shadow-[0_0_8px_var(--accent-glow)]" />
+              {t.hero.badge}
             </div>
-            <div className="font-medium text-gray-900 mb-1">{title}</div>
-            <div className="text-gray-500 text-xs leading-relaxed">{desc}</div>
+
+            <h1 className="max-w-3xl text-3xl font-bold leading-[1.05] tracking-tight sm:text-4xl lg:text-5xl">
+              {t.hero.title1}{' '}
+              <span className="gradient-text">{t.hero.title2}</span>?
+            </h1>
+
+            <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-[color:var(--muted)] sm:text-base lg:mx-0">
+              {t.hero.subtitlePrefix}{' '}
+              <span className="font-semibold text-[color:var(--text)]">{t.hero.subtitleBold}</span>{' '}
+              {t.hero.subtitleSuffix}
+            </p>
+
+            <p className="mt-3 text-xs text-[color:var(--muted-soft)]">
+              {t.hero.methodology}{' '}
+              <span className="font-medium text-[color:var(--muted)]">
+                Expectation Investing - Mauboussin & Rappaport
+              </span>
+            </p>
+
+            <SearchBar
+              onSearch={onSearch}
+              loading={loading}
+              className="mx-auto mt-6 max-w-2xl lg:mx-0"
+            />
           </div>
-        ))}
+
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+            {t.hero.steps.map(({ title, desc }, i) => (
+              <div key={i} className="card-section relative overflow-hidden p-4 text-left">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-strong)] text-xs font-bold text-white shadow-[0_0_16px_var(--accent-glow)]">
+                    {i + 1}
+                  </div>
+                  <div>
+                    <div className="mb-0.5 text-xs font-bold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                      {title}
+                    </div>
+                    <div className="text-xs leading-5 text-[color:var(--muted)]">{desc}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
+  );
+};
+
+interface ResultsNavProps {
+  items: Array<{ id: string; label: string }>;
+}
+
+const ResultsNav: React.FC<ResultsNavProps> = ({ items }) => {
+  const scrollToSection = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  return (
+    <div className="sticky top-[4rem] z-40 pb-1 pt-3">
+      <div className="results-nav">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="results-nav-button"
+            onClick={() => scrollToSection(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 };
 
@@ -71,14 +122,36 @@ const AppInner: React.FC = () => {
   const [assumptions, setAssumptions] = useState<AnalysisAssumptions | null>(null);
   const [result, setResult] = useState<ReverseFCFResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isDesktopResults, setIsDesktopResults] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(min-width: 1024px)').matches
+  );
 
-  // Recalculate whenever assumptions change
   useEffect(() => {
     if (stockData && assumptions) {
-      const r = runReverseFCFAnalysis(stockData, assumptions);
-      setResult(r);
+      setResult(runReverseFCFAnalysis(stockData, assumptions));
     }
   }, [stockData, assumptions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsDesktopResults(event.matches);
+    };
+
+    setIsDesktopResults(mediaQuery.matches);
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, []);
 
   const handleSearch = useCallback(async (ticker: string) => {
     setStatus('loading');
@@ -121,72 +194,133 @@ const AppInner: React.FC = () => {
     setErrorMsg('');
   };
 
+  const resultNavItems = [
+    { id: 'overview', label: t.navigation.overview },
+    { id: 'assumptions', label: t.navigation.assumptions },
+    { id: 'verdict', label: t.navigation.verdict },
+    { id: 'analysis', label: t.navigation.analysis },
+    ...(stockData?.description ? [{ id: 'about', label: t.navigation.about }] : []),
+  ];
+
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen">
       <Header onHome={handleHome} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
-        {/* Search bar visible when results are loaded */}
+      <main className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
         {status === 'loaded' && (
-          <div className="pt-6 pb-2">
-            <SearchBar
-              onSearch={handleSearch}
-              loading={status === ('loading' as AppStatus)}
-              className="max-w-2xl"
-            />
+          <div className="pb-1 pt-5">
+            <SearchBar onSearch={handleSearch} loading={false} className="max-w-2xl" />
+            <ResultsNav items={resultNavItems} />
           </div>
         )}
 
-        {/* Hero / Landing */}
         {status === 'idle' && <Hero onSearch={handleSearch} loading={false} />}
-
-        {/* Loading */}
         {status === 'loading' && <LoadingSpinner ticker={currentTicker} />}
+        {status === 'error' && <ErrorMessage message={errorMsg} onRetry={handleRetry} />}
 
-        {/* Error */}
-        {status === 'error' && (
-          <ErrorMessage message={errorMsg} onRetry={handleRetry} />
-        )}
-
-        {/* Results */}
         {status === 'loaded' && stockData && assumptions && result && (
-          <div id="results" className="space-y-4 pt-4">
-            {/* Stock Overview */}
-            <StockOverview data={stockData} />
+          <div id="results" className="space-y-4 pt-3">
+            <section id="overview" className="section-anchor">
+              <StockOverview data={stockData} />
+            </section>
 
-            {/* Two-column layout: Assumptions | Recommendation */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-              <div className="lg:col-span-2">
-                <AssumptionsPanel
-                  assumptions={assumptions}
-                  defaultDrivers={stockData.operatingDrivers}
-                  onChange={setAssumptions}
-                />
+            {isDesktopResults ? (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
+                <div className="min-w-0 space-y-3 lg:col-span-5">
+                  <section id="assumptions" className="section-anchor min-w-0">
+                    <AssumptionsPanel
+                      assumptions={assumptions}
+                      defaultDrivers={stockData.operatingDrivers}
+                      currency={stockData.currency}
+                      reportedNonOperatingAssets={
+                        stockData.totalCash + stockData.longTermInvestments
+                      }
+                      onChange={setAssumptions}
+                    />
+                  </section>
+
+                  <section className="section-anchor min-w-0">
+                    <FCFSensitivityCard
+                      data={stockData}
+                      result={result}
+                      assumptions={assumptions}
+                    />
+                  </section>
+                </div>
+
+                <div className="min-w-0 space-y-3 lg:col-span-7">
+                  <section id="verdict" className="section-anchor">
+                    <RecommendationCard
+                      result={result}
+                      currentPrice={stockData.price}
+                      currency={stockData.currency}
+                    />
+                  </section>
+
+                  <section id="analysis" className="section-anchor">
+                    <FCFBreakdownCard
+                      data={stockData}
+                      result={result}
+                      assumptions={assumptions}
+                    />
+                  </section>
+
+                  {stockData.description && (
+                    <section id="about" className="section-anchor">
+                      <div className="card p-5 sm:p-6">
+                        <div className="section-title mb-3">
+                          {t.about} {stockData.name}
+                        </div>
+                        <p className="cursor-pointer text-sm leading-7 text-[color:var(--muted)] line-clamp-4 transition-all hover:line-clamp-none">
+                          {stockData.description}
+                        </p>
+                      </div>
+                    </section>
+                  )}
+                </div>
               </div>
-              <div className="lg:col-span-3">
-                <RecommendationCard
-                  result={result}
-                  currentPrice={stockData.price}
-                  currency={stockData.currency}
-                />
-              </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                <section id="assumptions" className="section-anchor">
+                  <AssumptionsPanel
+                    assumptions={assumptions}
+                    defaultDrivers={stockData.operatingDrivers}
+                    currency={stockData.currency}
+                    reportedNonOperatingAssets={
+                      stockData.totalCash + stockData.longTermInvestments
+                    }
+                    onChange={setAssumptions}
+                  />
+                </section>
 
-            {/* FCF Analysis + Sensitivity */}
-            <FCFAnalysis data={stockData} result={result} assumptions={assumptions} />
+                <section id="verdict" className="section-anchor">
+                  <RecommendationCard
+                    result={result}
+                    currentPrice={stockData.price}
+                    currency={stockData.currency}
+                  />
+                </section>
 
-            {/* Company Description */}
-            {stockData.description && (
-              <div className="card p-6">
-                <div className="section-title mb-3">{t.about} {stockData.name}</div>
-                <p className="text-gray-500 text-sm leading-relaxed line-clamp-4 hover:line-clamp-none transition-all cursor-pointer">
-                  {stockData.description}
-                </p>
+                <section id="analysis" className="section-anchor">
+                  <FCFAnalysis data={stockData} result={result} assumptions={assumptions} />
+                </section>
+
+                {stockData.description && (
+                  <section id="about" className="section-anchor">
+                    <div className="card p-5 sm:p-6">
+                      <div className="section-title mb-3">
+                        {t.about} {stockData.name}
+                      </div>
+                      <p className="cursor-pointer text-sm leading-7 text-[color:var(--muted)] line-clamp-4 transition-all hover:line-clamp-none">
+                        {stockData.description}
+                      </p>
+                    </div>
+                  </section>
+                )}
               </div>
             )}
 
-            {/* Disclaimer */}
-            <div className="text-center text-xs text-gray-400 pb-4 leading-relaxed max-w-3xl mx-auto">
+            <div className="mx-auto max-w-2xl pb-2 text-center text-[11px] leading-relaxed text-[color:var(--muted-soft)]">
               {t.disclaimer}
             </div>
           </div>

@@ -9,7 +9,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { ReverseFCFResult } from '../types';
-import { formatPercent, formatCurrency } from '../utils/format';
+import { formatLargeNumber, formatPercent, formatCurrency } from '../utils/format';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface RecommendationCardProps {
@@ -20,45 +20,39 @@ interface RecommendationCardProps {
 
 const CONFIG = {
   'STRONG BUY': {
-    badge: 'bg-emerald-600 text-white',
-    text: 'text-emerald-600',
-    border: 'border-emerald-200',
-    bg: 'bg-emerald-50',
+    badge: 'status-badge status-badge-positive',
+    text: 'status-positive',
+    panel: 'border-[color:rgba(5,150,105,0.18)] bg-[color:rgba(5,150,105,0.05)]',
     icon: TrendingUp,
   },
   BUY: {
-    badge: 'bg-green-600 text-white',
-    text: 'text-green-600',
-    border: 'border-green-200',
-    bg: 'bg-green-50',
+    badge: 'status-badge status-badge-positive-soft',
+    text: 'status-positive',
+    panel: 'border-[color:rgba(5,150,105,0.18)] bg-[color:rgba(5,150,105,0.04)]',
     icon: TrendingUp,
   },
   HOLD: {
-    badge: 'bg-amber-500 text-white',
-    text: 'text-amber-600',
-    border: 'border-amber-200',
-    bg: 'bg-amber-50',
+    badge: 'status-badge status-badge-warning',
+    text: 'status-warning',
+    panel: 'border-[color:rgba(217,119,6,0.18)] bg-[color:rgba(217,119,6,0.05)]',
     icon: Minus,
   },
   SELL: {
-    badge: 'bg-orange-500 text-white',
-    text: 'text-orange-600',
-    border: 'border-orange-200',
-    bg: 'bg-orange-50',
+    badge: 'status-badge status-badge-caution',
+    text: 'status-caution',
+    panel: 'border-[color:rgba(234,88,12,0.18)] bg-[color:rgba(234,88,12,0.05)]',
     icon: TrendingDown,
   },
   'STRONG SELL': {
-    badge: 'bg-red-600 text-white',
-    text: 'text-red-600',
-    border: 'border-red-200',
-    bg: 'bg-red-50',
+    badge: 'status-badge status-badge-negative',
+    text: 'status-negative',
+    panel: 'border-[color:rgba(220,38,38,0.18)] bg-[color:rgba(220,38,38,0.05)]',
     icon: TrendingDown,
   },
   'N/A': {
-    badge: 'bg-gray-500 text-white',
-    text: 'text-gray-500',
-    border: 'border-gray-200',
-    bg: 'bg-gray-50',
+    badge: 'status-badge status-badge-neutral',
+    text: 'status-neutral',
+    panel: 'border-[color:var(--border)] bg-[color:var(--surface-muted)]',
     icon: AlertCircle,
   },
 };
@@ -72,106 +66,143 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
   const rec = result.recommendation;
   const cfg = CONFIG[rec];
   const Icon = cfg.icon;
+  const verdictLabel =
+    rec === 'STRONG BUY'
+      ? t.recommendation.scaleZones.strongBuy
+      : rec === 'BUY'
+      ? t.recommendation.scaleZones.buy
+      : rec === 'HOLD'
+      ? t.recommendation.scaleZones.hold
+      : rec === 'SELL'
+      ? t.recommendation.scaleZones.sell
+      : rec === 'STRONG SELL'
+      ? t.recommendation.scaleZones.strongSell
+      : rec;
 
   const impliedYears = result.impliedForecastYears;
-  const isUndervalued = result.marginOfSafety > 0;
+  const pieExceedsMax =
+    isFinite(impliedYears) &&
+    impliedYears >= 50 &&
+    result.impliedBreakdown.shareholderValue < result.marketShareholderValue;
+  const steadyStateGap =
+    isFinite(result.steadyStateValue) && result.steadyStateValue !== 0
+      ? (currentPrice - result.steadyStateValue) / Math.abs(result.steadyStateValue)
+      : NaN;
+  const belowSteadyState = isFinite(steadyStateGap) ? steadyStateGap <= 0 : false;
 
   return (
-    <div className={`card border ${cfg.border} overflow-hidden`}>
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+    <div className="card overflow-hidden">
+      <div className="relative p-5 sm:p-6">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <span className="section-title">
-            <Icon className={`w-5 h-5 ${cfg.text}`} />
+            <Icon className={`h-4 w-4 ${cfg.text}`} />
             {t.recommendation.verdictTitle}
           </span>
-          <span
-            className={`px-3 py-1 rounded-full text-sm font-semibold uppercase tracking-wider ${cfg.badge}`}
-          >
-            {rec}
+          <span className={cfg.badge}>
+            {verdictLabel}
           </span>
         </div>
 
-        {/* Main Insight */}
-        <p className="text-gray-500 text-sm leading-relaxed mb-5">
+        <p className="mb-4 text-xs leading-6 text-[color:var(--muted)]">
           {t.recommendation.descriptions[rec]}
         </p>
 
-        {/* Central PIE Metric */}
-        <div className={`card-section p-5 mb-5 text-center border ${cfg.border}`}>
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <Clock className={`w-4 h-4 ${cfg.text}`} />
+        <div className={`mb-4 rounded-2xl border p-4 text-center ${cfg.panel}`}>
+          <div className="mb-2 flex items-center justify-center gap-1.5">
+            <Clock className={`h-3.5 w-3.5 ${cfg.text}`} />
             <span className="label">{t.recommendation.pieLabel}</span>
           </div>
-          <div className={`font-mono text-6xl font-extrabold tracking-tight ${cfg.text}`}>
+          <div className={`font-mono text-5xl font-extrabold tracking-tight ${cfg.text}`}>
             {result.isNegativeNOPAT
               ? 'N/A'
+              : pieExceedsMax
+              ? '50+'
               : isFinite(impliedYears)
               ? impliedYears.toFixed(1)
-              : '50+'}
+              : 'N/A'}
           </div>
-          <div className={`text-sm font-medium mt-1 ${cfg.text} opacity-70`}>
-            {!result.isNegativeNOPAT && 'years'}
+          <div className={`mt-0.5 text-xs font-medium ${cfg.text} opacity-60`}>
+            {!result.isNegativeNOPAT && t.fcfAnalysis.yearsLabel.trim()}
           </div>
-          <div className="text-gray-400 text-xs mt-2 max-w-xs mx-auto">
+          <div className="mx-auto mt-2 max-w-xs text-[11px] leading-5 text-[color:var(--muted)]">
             {result.isNegativeNOPAT
               ? t.recommendation.pieNegative
-              : isFinite(impliedYears) && impliedYears <= 50
-              ? t.recommendation.pieSub
-              : t.recommendation.pieSubLong}
+              : pieExceedsMax
+              ? t.recommendation.pieSubLong
+              : t.recommendation.pieSub}
           </div>
         </div>
 
-        {/* Implied Years Bar */}
         {isFinite(impliedYears) && !result.isNegativeNOPAT && (
-          <ImpliedYearsBar years={impliedYears} scaleLabel={t.recommendation.scaleLabel} />
+          <ImpliedYearsBar years={impliedYears} />
         )}
 
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-3 gap-3 mt-5">
-          <InsightMetric
-            label={t.recommendation.intrinsicValue}
-            value={result.intrinsicValue10Y > 0 ? formatCurrency(result.intrinsicValue10Y, currency) : 'N/A'}
-            sub={t.recommendation.intrinsicSub}
-            color={isUndervalued ? 'text-emerald-600' : 'text-red-600'}
-          />
-          <InsightMetric
-            label={t.recommendation.marginOfSafety}
-            value={isFinite(result.marginOfSafety) ? `${isUndervalued ? '+' : ''}${formatPercent(result.marginOfSafety)}` : 'N/A'}
-            sub={t.recommendation.mosSub(isUndervalued)}
-            color={isUndervalued ? 'text-emerald-600' : 'text-red-600'}
-          />
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
           <InsightMetric
             label={t.recommendation.steadyState}
-            value={result.steadyStateValue > 0 ? formatCurrency(result.steadyStateValue, currency) : 'N/A'}
+            value={
+              isFinite(result.steadyStateValue)
+                ? formatCurrency(result.steadyStateValue, currency)
+                : 'N/A'
+            }
             sub={t.recommendation.steadySub}
-            color="text-gray-700"
+            color={
+              isFinite(result.steadyStateValue) && result.steadyStateValue >= currentPrice
+                ? 'status-positive'
+                : 'status-negative'
+            }
+          />
+          <InsightMetric
+            label={t.recommendation.priceVsSteadyState}
+            value={isFinite(steadyStateGap) ? formatPercent(steadyStateGap) : 'N/A'}
+            sub={t.recommendation.priceVsSteadySub(belowSteadyState)}
+            color={
+              !isFinite(steadyStateGap)
+                ? 'text-[color:var(--muted)]'
+                : belowSteadyState
+                ? 'status-positive'
+                : 'status-negative'
+            }
+          />
+          <InsightMetric
+            label={t.recommendation.nonOperatingAssets}
+            value={formatLargeNumber(result.totalNonOperatingAssets, currency)}
+            sub={t.recommendation.nonOperatingSub}
+            color="text-[color:var(--text)]"
           />
         </div>
 
-        {/* Supporting info */}
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg flex flex-wrap gap-x-6 gap-y-2 text-xs text-gray-400">
-          <span>
-            {t.recommendation.fcfYield}:{' '}
-            <span className="text-gray-700 font-mono">{formatPercent(result.fcfYield)}</span>
-          </span>
-          <span>
-            {t.recommendation.currentPrice}:{' '}
-            <span className="text-gray-700 font-mono">{formatCurrency(currentPrice, currency)}</span>
-          </span>
-          {result.isNegativeNOPAT && (
-            <span className="flex items-center gap-1 text-amber-600">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {t.recommendation.negativeNopatWarning}
+        <div className="data-strip mt-3">
+          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+            <span>
+              {t.recommendation.fcfYield}:{' '}
+              <span className="font-mono text-[color:var(--text)]">{formatPercent(result.fcfYield)}</span>
             </span>
-          )}
+            <span>
+              {t.recommendation.currentPrice}:{' '}
+              <span className="font-mono text-[color:var(--text)]">
+                {formatCurrency(currentPrice, currency)}
+              </span>
+            </span>
+            <span>
+              {t.recommendation.marketShareholderValue}:{' '}
+              <span className="font-mono text-[color:var(--text)]">
+                {formatLargeNumber(result.marketShareholderValue, currency)}
+              </span>
+            </span>
+            {result.isNegativeNOPAT && (
+              <span className="status-warning flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                {t.recommendation.negativeNopatWarning}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Methodology Note */}
-        <div className="mt-4 flex items-start gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-          <CheckCircle2 className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-          <p className="text-xs text-gray-400 leading-relaxed">
-            <span className="text-gray-600 font-medium">{t.recommendation.methodologyBold}</span>{' '}
+        <div className="info-panel mt-3">
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--accent)]" />
+          <p className="text-xs leading-5 text-[color:var(--muted)]">
+            <span className="font-semibold text-[color:var(--text)]">{t.recommendation.methodologyBold}</span>{' '}
             {t.recommendation.methodologyText}
           </p>
         </div>
@@ -179,8 +210,6 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
     </div>
   );
 };
-
-// Sub-components
 
 interface InsightMetricProps {
   label: string;
@@ -191,80 +220,91 @@ interface InsightMetricProps {
 
 const InsightMetric: React.FC<InsightMetricProps> = ({ label, value, sub, color }) => (
   <div className="card-section p-3 text-center">
-    <div className="metric-label mb-1">{label}</div>
-    <div className={`font-mono font-bold text-base ${color}`}>{value}</div>
-    <div className="text-xs text-gray-400 mt-0.5">{sub}</div>
+    <div className="metric-label mb-1.5">{label}</div>
+    <div className={`font-mono text-base font-bold ${color}`}>{value}</div>
+    <div className="mt-1 text-[10px] leading-4 text-[color:var(--muted-soft)]">{sub}</div>
   </div>
 );
 
 interface ImpliedYearsBarProps {
   years: number;
-  scaleLabel: string;
 }
 
-const ImpliedYearsBar: React.FC<ImpliedYearsBarProps> = ({ years, scaleLabel }) => {
+const ImpliedYearsBar: React.FC<ImpliedYearsBarProps> = ({ years }) => {
+  const { t } = useLanguage();
   const maxScale = 30;
   const pct = Math.min(99, Math.max(1, (years / maxScale) * 100));
+  const zones = t.recommendation.scaleZones;
+  const zoneWidths = [3, 4, 8, 10];
 
-  const zones = [
-    { label: 'Strong Buy', year: 0, color: 'text-emerald-600' },
-    { label: 'Buy', year: 3, color: 'text-green-600' },
-    { label: 'Hold', year: 7, color: 'text-amber-600' },
-    { label: 'Sell', year: 15, color: 'text-orange-600' },
-    { label: 'Strong Sell', year: 25, color: 'text-red-600' },
+  const zoneLabels = [
+    { label: zones.strongBuy, year: 0, color: 'status-positive' },
+    { label: zones.buy, year: 3, color: 'status-positive' },
+    { label: zones.hold, year: 7, color: 'status-warning' },
+    { label: zones.sell, year: 15, color: 'status-caution' },
+    { label: zones.strongSell, year: 25, color: 'status-negative' },
   ];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">{scaleLabel}</span>
-        <span className="text-sm font-mono font-semibold text-gray-700">{years.toFixed(1)} yrs</span>
+    <div className="soft-panel p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <span className="label">{t.recommendation.scaleLabel}</span>
+        <span className="font-mono text-xs font-semibold text-[color:var(--text)]">
+          {years.toFixed(1)}
+          {t.recommendation.yearShort}
+        </span>
       </div>
 
-      {/* Zone labels */}
-      <div className="relative mb-1">
-        <div className="flex text-xs font-medium" style={{ fontSize: '10px' }}>
-          <span className="text-emerald-600" style={{ width: `${(3 / maxScale) * 100}%` }}>Strong Buy</span>
-          <span className="text-green-600" style={{ width: `${(4 / maxScale) * 100}%` }}>Buy</span>
-          <span className="text-amber-600" style={{ width: `${(8 / maxScale) * 100}%` }}>Hold</span>
-          <span className="text-orange-600" style={{ width: `${(10 / maxScale) * 100}%` }}>Sell</span>
-          <span className="text-red-600 flex-1 text-right">Strong Sell</span>
-        </div>
+      <div className="mb-1.5 flex text-[9px] font-bold uppercase tracking-[0.1em]">
+        {zoneLabels.map((zone, index) => (
+          <span
+            key={zone.label}
+            className={`${zone.color} ${index === zoneLabels.length - 1 ? 'flex-1 text-right' : ''}`}
+            style={
+              index === zoneLabels.length - 1
+                ? undefined
+                : { width: `${(zoneWidths[index] / maxScale) * 100}%` }
+            }
+          >
+            {zone.label}
+          </span>
+        ))}
       </div>
 
-      {/* Track */}
-      <div className="relative h-2.5 rounded-full overflow-visible">
+      <div className="relative h-2 rounded-full">
         <div
-          className="absolute inset-0 rounded-full"
+          className="absolute inset-0 rounded-full opacity-25"
           style={{
-            background: 'linear-gradient(to right, #059669, #16a34a, #d97706, #ea580c, #dc2626)',
-            opacity: 0.15,
+            background: 'linear-gradient(to right, #059669, #10b981, #d97706, #ea580c, #dc2626)',
           }}
         />
         <div
-          className="absolute top-0 left-0 h-full rounded-full"
+          className="absolute left-0 top-0 h-full rounded-full"
           style={{
             width: `${pct}%`,
-            background: 'linear-gradient(to right, #059669, #16a34a, #d97706, #ea580c, #dc2626)',
-            opacity: 0.7,
+            background: 'linear-gradient(to right, #059669, #10b981, #d97706, #ea580c, #dc2626)',
           }}
         />
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-4 rounded-sm bg-gray-900 border border-gray-700"
-          style={{ left: `${pct}%`, transform: 'translateX(-50%) translateY(-50%)' }}
+          className="absolute top-1/2 h-4 w-2.5 rounded-full border border-white shadow-[0_0_12px_rgba(0,176,238,0.18)]"
+          style={{
+            left: `${pct}%`,
+            transform: 'translate(-50%, -50%)',
+            background: 'var(--text)',
+          }}
         />
       </div>
 
-      {/* Year ticks */}
-      <div className="relative mt-1.5">
-        <div className="flex justify-between text-xs text-gray-400 font-mono">
-          {zones.map((z) => (
-            <span key={z.label}>
-              {z.year}Y
-            </span>
-          ))}
-          <span>30Y+</span>
-        </div>
+      <div className="mt-1.5 flex justify-between font-mono text-[9px] text-[color:var(--muted-soft)]">
+        {zoneLabels.map((zone) => (
+          <span key={zone.year}>
+            {zone.year}
+            {t.recommendation.yearShort}
+          </span>
+        ))}
+        <span>
+          30{t.recommendation.yearShort}+
+        </span>
       </div>
     </div>
   );

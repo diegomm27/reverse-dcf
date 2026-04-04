@@ -1,11 +1,17 @@
 import { Router, Request, Response } from 'express';
 import YahooFinance from 'yahoo-finance2';
-import { StockFinancials, OperatingDrivers } from '../types';
+import { StockFinancials, OperatingDrivers, ValuationModelProfile } from '../types';
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ['yahooSurvey'],
 });
 const router = Router();
+
+function shouldDebugRequest(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(shouldDebugRequest);
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'debug';
+}
 
 function safeNumber(val: unknown): number {
   const n = Number(val);
@@ -16,6 +22,39 @@ function safeNumberOrNull(val: unknown): number | null {
   if (val === null || val === undefined) return null;
   const n = Number(val);
   return isNaN(n) ? null : n;
+}
+
+function relativeDifference(a: number, b: number): number {
+  const scale = Math.max(Math.abs(a), Math.abs(b), 1);
+  return Math.abs(a - b) / scale;
+}
+
+function pickConsistentValue(
+  reportedValue: number | null,
+  derivedValue: number,
+  tolerance = 0.2
+): { value: number; source: 'reported' | 'derived' | 'missing'; discrepancy: number | null } {
+  const hasReported = reportedValue !== null && isFinite(reportedValue);
+  const hasDerived = isFinite(derivedValue);
+
+  if (hasReported && hasDerived) {
+    const discrepancy = relativeDifference(reportedValue as number, derivedValue);
+    if (discrepancy <= tolerance) {
+      return { value: reportedValue as number, source: 'reported', discrepancy };
+    }
+
+    return { value: derivedValue, source: 'derived', discrepancy };
+  }
+
+  if (hasReported) {
+    return { value: reportedValue as number, source: 'reported', discrepancy: null };
+  }
+
+  if (hasDerived) {
+    return { value: derivedValue, source: 'derived', discrepancy: null };
+  }
+
+  return { value: 0, source: 'missing', discrepancy: null };
 }
 
 function normalizeCurrencyUnit(currency: string | null | undefined): { code: string; unitScale: number } {
@@ -33,6 +72,36 @@ function normalizeCurrencyUnit(currency: string | null | undefined): { code: str
     default:
       return { code: rawCode.toUpperCase(), unitScale: 1 };
   }
+}
+
+function getValuationModelProfile(
+  sector: string,
+  industry: string
+): ValuationModelProfile {
+  const normalizedSector = sector.trim().toLowerCase();
+  const normalizedIndustry = industry.trim().toLowerCase();
+  const combined = `${normalizedSector} ${normalizedIndustry}`;
+
+  const unsupportedKeywords = [
+    'insurance',
+    'bank',
+    'banks',
+    'capital markets',
+    'asset management',
+    'brokerage',
+    'credit services',
+    'mortgage finance',
+    'financial exchanges',
+    'financial data',
+    'investment management',
+    'diversified financial',
+  ];
+
+  const isUnsupported =
+    normalizedSector.includes('financial services') ||
+    unsupportedKeywords.some((keyword) => combined.includes(keyword));
+
+  return isUnsupported ? 'financialLike' : 'standard';
 }
 
 async function getFxRateToQuoteCurrency(
@@ -77,11 +146,43 @@ async function getFxRateToQuoteCurrency(
   return 1;
 }
 
+// Simple in-memory cache: ticker -> { data, timestamp }
+const cache = new Map<string, { data: StockFinancials; timestamp: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCached(symbol: string): StockFinancials | null {
+  const entry = cache.get(symbol);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    cache.delete(symbol);
+    return null;
+  }
+  return entry.data;
+}
+
 router.get('/:ticker', async (req: Request, res: Response) => {
   const { ticker } = req.params;
   const symbol = ticker.toUpperCase().trim();
 
+  // Validate ticker format
+  if (!/^[A-Z0-9^.\-]{1,10}$/.test(symbol)) {
+    return res.status(400).json({
+      error: 'InvalidTicker',
+      message: 'Ticker must be 1-10 alphanumeric characters.',
+    });
+  }
+
+  // Debug only in development
+  const debugRequested =
+    process.env.NODE_ENV !== 'production' && shouldDebugRequest(req.query.debug);
+
   try {
+    // Return cached data if available
+    const cached = getCached(symbol);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const fiveYearsAgo = new Date();
     fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
 
@@ -106,6 +207,13 @@ router.get('/:ticker', async (req: Request, res: Response) => {
     const ks = summary.defaultKeyStatistics ?? {};
     const profile = summary.summaryProfile ?? {};
     const priceModule = summary.price ?? {};
+    const companyName = String(priceModule.longName ?? priceModule.shortName ?? symbol);
+    const sector = String((profile as any).sector ?? 'N/A');
+    const industry = String((profile as any).industry ?? 'N/A');
+    const valuationModelProfile = getValuationModelProfile(
+      sector,
+      industry
+    );
 
     // Annual financial statements — API returns oldest first; reverse for newest-first access
     const annualData = [...fundamentals].reverse();
@@ -149,10 +257,16 @@ router.get('/:ticker', async (req: Request, res: Response) => {
     const netDebt = totalDebt - totalCash;
 
     // --- Enterprise Value ---
-    let enterpriseValue = safeNumber(ks.enterpriseValue);
-    if (!enterpriseValue || enterpriseValue <= 0) {
-      enterpriseValue = marketCap + netDebt;
-    }
+    const reportedEnterpriseValue = safeNumberOrNull(
+      ks.enterpriseValue ?? quote.enterpriseValue ?? priceModule.enterpriseValue
+    );
+    const derivedEnterpriseValue = marketCap + netDebt;
+    const enterpriseValueSelection = pickConsistentValue(
+      reportedEnterpriseValue,
+      derivedEnterpriseValue,
+      0.1
+    );
+    const enterpriseValue = enterpriseValueSelection.value;
 
     // === Income Statement (current and prior year) ===
     const revenue = toQuoteCurrency(fd.totalRevenue ?? fs0.totalRevenue);
@@ -191,8 +305,11 @@ router.get('/:ticker', async (req: Request, res: Response) => {
     const depreciation = toQuoteCurrency(
       fs0.depreciationAndAmortization ?? fs0.depreciation ?? fs0.depreciationAmortizationDepletion
     );
-    // operatingCashflow is still reliable from financialData (TTM)
-    const operatingCashFlow = toQuoteCurrency(fd.operatingCashflow ?? fs0.operatingCashFlow);
+    const operatingCashFlow = toQuoteCurrency(
+      fs0.operatingCashFlow ??
+      fs0.cashFlowFromContinuingOperatingActivities ??
+      fd.operatingCashflow
+    );
 
     // === Balance Sheet: current and prior year ===
     const currentAssets0 = toQuoteCurrency(fs0.currentAssets);
@@ -213,12 +330,12 @@ router.get('/:ticker', async (req: Request, res: Response) => {
         ? (revenue - priorRevenue) / priorRevenue
         : 0.05;
 
-    const incrementalWorkingCapitalRate =
+    const rawIncrementalWorkingCapitalRate =
       Math.abs(deltaSales) > 1_000_000
         ? deltaNWC / deltaSales
         : 0;
 
-    const incrementalFixedCapitalRate =
+    const rawIncrementalFixedCapitalRate =
       Math.abs(deltaSales) > 1_000_000
         ? netCapEx / deltaSales
         : 0;
@@ -226,23 +343,23 @@ router.get('/:ticker', async (req: Request, res: Response) => {
     const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
     const operatingDrivers: OperatingDrivers = {
-      salesGrowthRate: clamp(salesGrowthRate, -0.5, 1.0),
+      salesGrowthRate,
       operatingProfitMargin: clamp(operatingMargin, -0.5, 0.8),
       cashTaxRate: clamp(cashTaxRate, 0, 0.5),
-      incrementalWorkingCapitalRate: clamp(incrementalWorkingCapitalRate, -0.5, 0.5),
-      incrementalFixedCapitalRate: clamp(incrementalFixedCapitalRate, -0.5, 2.0),
+      incrementalWorkingCapitalRate: rawIncrementalWorkingCapitalRate,
+      incrementalFixedCapitalRate: rawIncrementalFixedCapitalRate,
     };
 
-    // Reported TTM FCF when Yahoo provides it; otherwise fall back to the
-    // modeled annual operating FCF derived from the value drivers.
-    const incrementalInvestment =
-      deltaSales *
-      (operatingDrivers.incrementalWorkingCapitalRate + operatingDrivers.incrementalFixedCapitalRate);
-    const reportedFreeCashFlow = safeNumberOrNull(fd.freeCashflow);
-    const freeCashFlow =
-      reportedFreeCashFlow !== null
-        ? reportedFreeCashFlow * fxRateToQuoteCurrency
-        : nopat - incrementalInvestment;
+    const derivedFreeCashFlow = operatingCashFlow - capitalExpenditures;
+    const reportedFreeCashFlow = safeNumberOrNull(
+      fs0.freeCashFlow ?? (fs0 as any).freeCashflow ?? fd.freeCashflow
+    );
+    const freeCashFlowSelection = pickConsistentValue(
+      reportedFreeCashFlow !== null ? reportedFreeCashFlow * fxRateToQuoteCurrency : null,
+      derivedFreeCashFlow,
+      0.25
+    );
+    const freeCashFlow = freeCashFlowSelection.value;
 
     // --- Nonoperating Assets ---
     // Long-term investments: equity-method stakes, held-to-maturity bonds >1yr,
@@ -278,9 +395,10 @@ router.get('/:ticker', async (req: Request, res: Response) => {
 
     const result: StockFinancials = {
       ticker: symbol,
-      name: String(priceModule.longName ?? priceModule.shortName ?? symbol),
-      sector: String((profile as any).sector ?? 'N/A'),
-      industry: String((profile as any).industry ?? 'N/A'),
+      name: companyName,
+      sector,
+      industry,
+      valuationModelProfile,
       description: String((profile as any).longBusinessSummary ?? ''),
       country: String((profile as any).country ?? 'N/A'),
       currency,
@@ -335,6 +453,53 @@ router.get('/:ticker', async (req: Request, res: Response) => {
       returnOnEquity,
       returnOnAssets,
     };
+
+    if (debugRequested) {
+      const debugPayload = {
+        ticker: symbol,
+        requestedAt: new Date().toISOString(),
+        query: req.query,
+        raw: {
+          summary,
+          quote,
+          fundamentals,
+        },
+        diagnostics: {
+          enterpriseValue: {
+            reported: reportedEnterpriseValue,
+            derived: derivedEnterpriseValue,
+            selected: enterpriseValue,
+            source: enterpriseValueSelection.source,
+            discrepancy: enterpriseValueSelection.discrepancy,
+          },
+          freeCashFlow: {
+            reported:
+              reportedFreeCashFlow !== null
+                ? reportedFreeCashFlow * fxRateToQuoteCurrency
+                : null,
+            derived: derivedFreeCashFlow,
+            selected: freeCashFlow,
+            source: freeCashFlowSelection.source,
+            discrepancy: freeCashFlowSelection.discrepancy,
+          },
+          operatingDrivers: {
+            deltaSales,
+            deltaNWC,
+            netCapEx,
+            rawIncrementalWorkingCapitalRate,
+            rawIncrementalFixedCapitalRate,
+          },
+        },
+        normalized: result,
+      };
+
+      console.log(`\n===== DEBUG STOCK FETCH ${symbol} =====`);
+      console.log(JSON.stringify(debugPayload, null, 2));
+      console.log(`===== END DEBUG STOCK FETCH ${symbol} =====\n`);
+    }
+
+    // Cache the result
+    cache.set(symbol, { data: result, timestamp: Date.now() });
 
     res.json(result);
   } catch (err: any) {

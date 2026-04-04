@@ -3,6 +3,8 @@ export interface HistoricalDataPoint {
   value: number;
 }
 
+export type ValuationModelProfile = 'standard' | 'financialLike';
+
 /**
  * Mauboussin Operating Value Drivers — derived from financial statements.
  */
@@ -19,6 +21,7 @@ export interface StockFinancials {
   name: string;
   sector: string;
   industry: string;
+  valuationModelProfile: ValuationModelProfile;
   description: string;
   country: string;
   currency: string;

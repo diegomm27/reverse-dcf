@@ -1,5 +1,12 @@
 import React from 'react';
-import { ArrowUpRight, ArrowDownRight, Globe, Building2, BarChart2 } from 'lucide-react';
+import {
+  ArrowUpRight,
+  ArrowDownRight,
+  Globe,
+  Building2,
+  BarChart2,
+  AlertTriangle,
+} from 'lucide-react';
 import { StockFinancials } from '../types';
 import { formatCurrency, formatLargeNumber, formatPercent } from '../utils/format';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -13,65 +20,62 @@ const StockOverview: React.FC<StockOverviewProps> = ({ data }) => {
   const isPositive = data.priceChangePercent >= 0;
 
   return (
-    <div className="card p-6">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        {/* Company Info */}
+    <div className="card p-5 sm:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex-1">
-          <div className="flex items-center gap-3 mb-1">
-            <span className="font-mono text-2xl font-bold text-gray-900">{data.ticker}</span>
-            <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded border border-gray-200">
-              {data.exchange}
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-2xl font-bold tracking-tight">
+              {data.ticker}
             </span>
-            <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded border border-gray-200">
-              {data.currency}
-            </span>
+            <span className="accent-chip">{data.exchange}</span>
+            <span className="accent-chip">{data.currency}</span>
             {data.reportingCurrency !== data.currency && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded border border-gray-200">
-                {`FS ${data.reportingCurrency}->${data.currency}`}
-              </span>
+              <span className="accent-chip">{`FS ${data.reportingCurrency}->${data.currency}`}</span>
             )}
           </div>
-          <h1 className="text-xl font-semibold text-gray-900 mb-3">{data.name}</h1>
-          <div className="flex flex-wrap gap-3 text-sm text-gray-500">
-            <span className="flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-gray-400" />
+
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+            {data.name}
+          </h1>
+
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-[color:var(--muted)]">
+            <span className="flex items-center gap-1">
+              <Building2 className="h-3.5 w-3.5 text-[color:var(--accent)]" />
               {data.sector}
             </span>
-            <span className="text-gray-300">·</span>
-            <span className="flex items-center gap-1.5">
-              <BarChart2 className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-[color:var(--muted-soft)]">/</span>
+            <span className="flex items-center gap-1">
+              <BarChart2 className="h-3.5 w-3.5 text-[color:var(--accent)]" />
               {data.industry}
             </span>
-            <span className="text-gray-300">·</span>
-            <span className="flex items-center gap-1.5">
-              <Globe className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-[color:var(--muted-soft)]">/</span>
+            <span className="flex items-center gap-1">
+              <Globe className="h-3.5 w-3.5 text-[color:var(--accent)]" />
               {data.country}
             </span>
           </div>
         </div>
 
-        {/* Price Box */}
-        <div className="card-section px-6 py-4 text-right min-w-[180px]">
-          <div className="text-3xl font-mono font-bold text-gray-900">
+        <div className="card-section w-full px-5 py-4 text-left sm:text-right lg:w-auto lg:min-w-[220px]">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--accent)]">
+            {t.recommendation.currentPrice}
+          </div>
+          <div className="mt-1.5 text-2xl font-bold tracking-tight">
             {formatCurrency(data.price, data.currency)}
           </div>
           <div
-            className={`flex items-center justify-end gap-1 mt-1 text-sm font-medium ${
-              isPositive ? 'text-emerald-600' : 'text-red-600'
+            className={`mt-1.5 flex items-center gap-1 text-xs font-semibold sm:justify-end ${
+              isPositive ? 'status-positive' : 'status-negative'
             }`}
           >
-            {isPositive ? (
-              <ArrowUpRight className="w-4 h-4" />
-            ) : (
-              <ArrowDownRight className="w-4 h-4" />
-            )}
+            {isPositive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
             <span>{formatCurrency(Math.abs(data.priceChange), data.currency)}</span>
             <span>({formatPercent(Math.abs(data.priceChangePercent))})</span>
           </div>
           {data.targetMeanPrice && (
-            <div className="mt-2 text-xs text-gray-400">
+            <div className="mt-2 text-[11px] text-[color:var(--muted-soft)]">
               {t.metrics.analystTarget}:{' '}
-              <span className="text-gray-600 font-medium">
+              <span className="font-medium text-[color:var(--muted)]">
                 {formatCurrency(data.targetMeanPrice, data.currency)}
               </span>
             </div>
@@ -79,9 +83,8 @@ const StockOverview: React.FC<StockOverviewProps> = ({ data }) => {
         </div>
       </div>
 
-      {/* Primary Metrics */}
-      <div className="mt-5 pt-5 border-t border-gray-200 grid grid-cols-3 sm:grid-cols-6 gap-px bg-gray-200 rounded-lg overflow-hidden">
-        <MetricCell label={t.metrics.marketCap}       value={formatLargeNumber(data.marketCap, data.currency)} />
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+        <MetricCell label={t.metrics.marketCap} value={formatLargeNumber(data.marketCap, data.currency)} />
         <MetricCell label={t.metrics.enterpriseValue} value={formatLargeNumber(data.enterpriseValue, data.currency)} />
         <MetricCell
           label={t.metrics.netDebt}
@@ -103,25 +106,21 @@ const StockOverview: React.FC<StockOverviewProps> = ({ data }) => {
           value={data.beta.toFixed(2)}
           highlight={data.beta > 1.5 ? 'red' : data.beta < 0.8 ? 'green' : undefined}
         />
-      </div>
-
-      {/* Secondary Metrics */}
-      <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-200 rounded-lg overflow-hidden">
         <MetricCell
           label={t.metrics.trailingPE}
-          value={data.trailingPE !== null ? data.trailingPE.toFixed(1) + 'x' : '—'}
+          value={data.trailingPE !== null ? `${data.trailingPE.toFixed(1)}x` : 'N/A'}
         />
         <MetricCell
           label={t.metrics.forwardPE}
-          value={data.forwardPE !== null ? data.forwardPE.toFixed(1) + 'x' : '—'}
+          value={data.forwardPE !== null ? `${data.forwardPE.toFixed(1)}x` : 'N/A'}
         />
         <MetricCell
           label={t.metrics.pbRatio}
-          value={data.priceToBook !== null ? data.priceToBook.toFixed(2) + 'x' : '—'}
+          value={data.priceToBook !== null ? `${data.priceToBook.toFixed(2)}x` : 'N/A'}
         />
         <MetricCell
           label={t.metrics.roe}
-          value={data.returnOnEquity !== null ? formatPercent(data.returnOnEquity) : '—'}
+          value={data.returnOnEquity !== null ? formatPercent(data.returnOnEquity) : 'N/A'}
           highlight={
             data.returnOnEquity !== null
               ? data.returnOnEquity > 0.15
@@ -133,6 +132,20 @@ const StockOverview: React.FC<StockOverviewProps> = ({ data }) => {
           }
         />
       </div>
+
+      {data.valuationModelProfile === 'financialLike' && (
+        <div className="warning-panel mt-4">
+          <AlertTriangle className="status-warning mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <div className="mb-1 text-xs font-semibold text-[color:var(--text)]">
+              {t.warnings.financialLikeTitle}
+            </div>
+            <p className="text-xs leading-5 text-[color:var(--muted)]">
+              {t.warnings.financialLikeBody}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -146,14 +159,15 @@ interface MetricCellProps {
 const MetricCell: React.FC<MetricCellProps> = ({ label, value, highlight }) => {
   const valueColor =
     highlight === 'green'
-      ? 'text-emerald-600'
+      ? 'status-positive'
       : highlight === 'red'
-      ? 'text-red-600'
-      : 'text-gray-900';
+      ? 'status-negative'
+      : 'text-[color:var(--text)]';
+
   return (
-    <div className="bg-white px-3 py-3 flex flex-col items-center justify-center text-center">
-      <div className="metric-label mb-1 w-full truncate text-center">{label}</div>
-      <div className={`metric-value text-sm font-mono font-semibold ${valueColor}`}>{value}</div>
+    <div className="card-section p-3 text-center">
+      <div className="metric-label mb-1.5">{label}</div>
+      <div className={`metric-value text-xs ${valueColor}`}>{value}</div>
     </div>
   );
 };

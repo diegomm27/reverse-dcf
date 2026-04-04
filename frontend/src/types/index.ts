@@ -1,9 +1,9 @@
-// ─── Stock Data (from backend) ──────────────────────────────────────────────
-
 export interface HistoricalDataPoint {
   year: number;
   value: number;
 }
+
+export type ValuationModelProfile = 'standard' | 'financialLike';
 
 export interface OperatingDrivers {
   salesGrowthRate: number;
@@ -18,6 +18,7 @@ export interface StockFinancials {
   name: string;
   sector: string;
   industry: string;
+  valuationModelProfile: ValuationModelProfile;
   description: string;
   country: string;
   currency: string;
@@ -35,7 +36,7 @@ export interface StockFinancials {
   totalDebt: number;
   totalCash: number;
   netDebt: number;
-  longTermInvestments: number; // equity-method stakes, affiliated company investments, LT bonds
+  longTermInvestments: number;
 
   revenue: number;
   ebit: number;
@@ -73,8 +74,6 @@ export interface StockFinancials {
   returnOnAssets: number | null;
 }
 
-// ─── WACC Assumptions ────────────────────────────────────────────────────────
-
 export interface WACCAssumptions {
   riskFreeRate: number;
   marketRiskPremium: number;
@@ -86,18 +85,18 @@ export interface WACCAssumptions {
   wacc: number;
 }
 
-// ─── Analysis Assumptions ────────────────────────────────────────────────────
-// These represent what the MARKET is expected to produce (current/consensus).
-// The model projects FCF forward using these drivers and solves for how many
-// years of this performance justify the current price.
+export type ContinuingValueMethod =
+  | 'perpetuity'
+  | 'perpetuityWithInflation'
+  | 'ronicConvergence';
 
 export interface AnalysisAssumptions {
   wacc: WACCAssumptions;
-  drivers: OperatingDrivers;     // The 5 Mauboussin operating value drivers
-  terminalGrowthRate: number;    // Inflation / steady-state growth (~1.5–3%)
+  drivers: OperatingDrivers;
+  terminalGrowthRate: number;
+  continuingValueMethod: ContinuingValueMethod;
+  additionalNonOperatingAssets: number;
 }
-
-// ─── Analysis Result ─────────────────────────────────────────────────────────
 
 export type RecommendationType =
   | 'STRONG BUY'
@@ -121,32 +120,38 @@ export interface ProjectedYear {
   pvFCF: number;
 }
 
-export interface ReverseFCFResult {
-  // Core PIE output
-  impliedForecastYears: number;
+export interface ValuationBreakdown {
+  forecastYears: number;
+  presentValueForecastFCF: number;
+  continuingValue: number;
+  presentValueContinuingValue: number;
+  corporateValue: number;
+  shareholderValue: number;
+  valuePerShare: number;
+}
 
-  // Projected cash flows at current drivers
+export interface ReverseFCFResult {
+  impliedForecastYears: number;
   projectedCashFlows: ProjectedYear[];
 
-  // Intrinsic value at a standard 10Y horizon
-  intrinsicValue10Y: number;
-  marginOfSafety: number;
-
-  // Verdict
   recommendation: RecommendationType;
   recommendationStrength: number;
 
-  // Sensitivity: price vs forecast years
   sensitivityCurve: SensitivityPoint[];
 
-  // Supporting metrics
   currentNOPAT: number;
   currentFCF: number;
   fcfYield: number;
   isNegativeNOPAT: boolean;
-  enterpriseValue: number;       // Implied OPERATING EV (totalEV − longTermInvestments)
-  netDebt: number;
-  steadyStateValue: number;      // Per-share value with 0 years of explicit forecast
-  steadyStateOperatingEV: number; // Raw operating EV at 0 years (before equity bridge)
-  longTermInvestments: number;   // Nonoperating assets deducted from total EV
+  marketShareholderValue: number;
+  marketImpliedCorporateValue: number;
+  debt: number;
+  reportedNonOperatingAssets: number;
+  additionalNonOperatingAssets: number;
+  totalNonOperatingAssets: number;
+  steadyStateValue: number;
+  steadyStateCorporateValue: number;
+  steadyStateBreakdown: ValuationBreakdown;
+  impliedBreakdown: ValuationBreakdown;
+  continuingValueMethod: ContinuingValueMethod;
 }

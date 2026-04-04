@@ -11,18 +11,20 @@ const ErrorMessage: React.FC<ErrorMessageProps> = ({ message, onRetry }) => {
   const { t } = useLanguage();
 
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-4">
-      <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
-        <AlertCircle className="w-7 h-7 text-red-500" />
+    <div className="flex flex-col items-center justify-center gap-4 py-14">
+      <div className="danger-panel">
+        <AlertCircle className="status-negative h-7 w-7" />
       </div>
-      <div className="text-center max-w-md">
-        <h3 className="text-gray-900 font-semibold text-lg mb-2">{t.error.title}</h3>
-        <p className="text-gray-500 text-sm leading-relaxed">{message}</p>
-        <p className="text-gray-400 text-xs mt-2">{t.error.hint}</p>
+
+      <div className="max-w-md text-center">
+        <h3 className="text-lg font-bold tracking-tight">{t.error.title}</h3>
+        <p className="mt-1.5 text-xs leading-6 text-[color:var(--muted)]">{message}</p>
+        <p className="mt-1.5 text-[11px] text-[color:var(--muted-soft)]">{t.error.hint}</p>
       </div>
+
       {onRetry && (
-        <button onClick={onRetry} className="btn-ghost flex items-center gap-2 mt-2">
-          <RefreshCw className="w-4 h-4" />
+        <button type="button" onClick={onRetry} className="btn-ghost">
+          <RefreshCw className="h-3.5 w-3.5" />
           {t.error.retry}
         </button>
       )}
